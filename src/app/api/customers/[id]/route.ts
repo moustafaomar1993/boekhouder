@@ -1,0 +1,65 @@
+import { getSession } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+
+export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const session = await getSession();
+  if (!session) return Response.json({ error: "Niet ingelogd" }, { status: 401 });
+
+  const { id } = await params;
+  const customer = await prisma.customer.findFirst({
+    where: { id, userId: session.userId },
+  });
+
+  if (!customer) return Response.json({ error: "Klant niet gevonden" }, { status: 404 });
+  return Response.json(customer);
+}
+
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const session = await getSession();
+  if (!session) return Response.json({ error: "Niet ingelogd" }, { status: 401 });
+
+  const { id } = await params;
+  const customer = await prisma.customer.findFirst({
+    where: { id, userId: session.userId },
+  });
+  if (!customer) return Response.json({ error: "Klant niet gevonden" }, { status: 404 });
+
+  const body = await request.json();
+  const { name, email, phone, address, vatNumber, paymentTermValue, paymentTermUnit, defaultDescription, defaultUnitPrice, defaultVatRate } = body;
+
+  if (name !== undefined && (!name || !name.trim())) {
+    return Response.json({ error: "Naam is verplicht" }, { status: 400 });
+  }
+
+  const updated = await prisma.customer.update({
+    where: { id },
+    data: {
+      ...(name !== undefined && { name: name.trim() }),
+      ...(email !== undefined && { email: email?.trim() || null }),
+      ...(phone !== undefined && { phone: phone?.trim() || null }),
+      ...(address !== undefined && { address: address?.trim() || null }),
+      ...(vatNumber !== undefined && { vatNumber: vatNumber?.trim() || null }),
+      ...(paymentTermValue !== undefined && { paymentTermValue: paymentTermValue || null }),
+      ...(paymentTermUnit !== undefined && { paymentTermUnit: paymentTermUnit || null }),
+      ...(defaultDescription !== undefined && { defaultDescription: defaultDescription || null }),
+      ...(defaultUnitPrice !== undefined && { defaultUnitPrice: defaultUnitPrice || null }),
+      ...(defaultVatRate !== undefined && { defaultVatRate: defaultVatRate ?? null }),
+    },
+  });
+
+  return Response.json(updated);
+}
+
+export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const session = await getSession();
+  if (!session) return Response.json({ error: "Niet ingelogd" }, { status: 401 });
+
+  const { id } = await params;
+  const customer = await prisma.customer.findFirst({
+    where: { id, userId: session.userId },
+  });
+  if (!customer) return Response.json({ error: "Klant niet gevonden" }, { status: 404 });
+
+  await prisma.customer.delete({ where: { id } });
+  return Response.json({ success: true });
+}

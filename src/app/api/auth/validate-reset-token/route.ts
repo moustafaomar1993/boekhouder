@@ -8,6 +8,6 @@ export async function GET(request: Request) {
     return Response.json({ valid: false, error: "Token is vereist" }, { status: 400 });
   }
 
-  const result = validateResetToken(token);
+  const result = await validateResetToken(token);
   return Response.json(result);
 }

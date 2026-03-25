@@ -1,26 +1,56 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAllInvoices, getInvoicesByClient, addInvoice } from "@/lib/data";
-import type { Invoice, InvoiceItem } from "@/lib/data";
+import { prisma } from "@/lib/prisma";
 
 export async function GET(request: NextRequest) {
   const clientId = request.nextUrl.searchParams.get("clientId");
-  const invoices = clientId ? getInvoicesByClient(clientId) : getAllInvoices();
+  const invoices = clientId ? await getInvoicesByClient(clientId) : await getAllInvoices();
   return NextResponse.json(invoices);
+}
+
+async function generateUniqueInvoiceNumber(clientId: string): Promise<string> {
+  const year = new Date().getFullYear().toString();
+  const latest = await prisma.invoice.findFirst({
+    where: { clientId, invoiceNumber: { startsWith: year } },
+    orderBy: { invoiceNumber: "desc" },
+    select: { invoiceNumber: true },
+  });
+
+  let nextSeq = 1;
+  if (latest) {
+    const parsed = parseInt(latest.invoiceNumber.slice(year.length), 10);
+    if (!isNaN(parsed)) nextSeq = parsed + 1;
+  }
+
+  return `${year}${nextSeq.toString().padStart(5, "0")}`;
 }
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const items: InvoiceItem[] = body.items || [];
-  const subtotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+  const items = body.items || [];
+  const subtotal = items.reduce((sum: number, item: { quantity: number; unitPrice: number }) => sum + item.quantity * item.unitPrice, 0);
   const vatAmount = items.reduce(
-    (sum, item) => sum + item.quantity * item.unitPrice * (item.vatRate / 100),
+    (sum: number, item: { quantity: number; unitPrice: number; vatRate: number }) => sum + item.quantity * item.unitPrice * (item.vatRate / 100),
     0
   );
 
-  const invoice: Invoice = {
-    id: `inv-${Date.now()}`,
+  // Check if the submitted invoice number already exists, if so generate a new one
+  let invoiceNumber = body.invoiceNumber;
+  if (invoiceNumber) {
+    const exists = await prisma.invoice.findFirst({
+      where: { clientId: body.clientId, invoiceNumber },
+    });
+    if (exists) {
+      invoiceNumber = await generateUniqueInvoiceNumber(body.clientId);
+    }
+  } else {
+    invoiceNumber = await generateUniqueInvoiceNumber(body.clientId);
+  }
+
+  const invoice = await addInvoice({
     clientId: body.clientId,
-    invoiceNumber: body.invoiceNumber,
+    customerId: body.customerId || null,
+    invoiceNumber,
     date: body.date,
     dueDate: body.dueDate,
     customerName: body.customerName,
@@ -30,11 +60,10 @@ export async function POST(request: NextRequest) {
     vatAmount,
     total: subtotal + vatAmount,
     status: body.status || "draft",
-    bookkeepingStatus: "pending",
     notes: body.notes,
-    createdAt: new Date().toISOString(),
-  };
+    isCredit: body.isCredit || false,
+    originalInvoiceId: body.originalInvoiceId || null,
+  });
 
-  addInvoice(invoice);
   return NextResponse.json(invoice, { status: 201 });
 }

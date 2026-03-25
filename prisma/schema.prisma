@@ -1,0 +1,250 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String   @id @default(uuid())
+  name          String
+  email         String   @unique
+  role          String   @default("client") // client, bookkeeper, admin
+  company       String?
+  vatNumber     String?
+  kvkNumber     String?
+  username      String?  @unique
+  passwordHash  String?
+  isNew         Boolean  @default(true)
+  emailVerified Boolean  @default(false)
+  phone         String?
+  vatId         String?
+  vatObligation String?
+  iban          String?
+  bankName      String?
+  accountHolder String?
+  legalForm     String?
+  logoUrl       String?
+  // Reminder settings
+  reminderEnabled Boolean @default(false)
+  reminder1Days   Int     @default(7)
+  reminder2Days   Int     @default(14)
+  reminder3Days   Int     @default(21)
+  // Quotation settings
+  quotationValidityDays    Int     @default(30)
+  defaultQuotationEmailText String?
+  createdAt     DateTime @default(now())
+
+  administrations    Administration[]
+  invoices           Invoice[]
+  customers          Customer[]
+  sessions           Session[]
+  verificationTokens VerificationToken[]
+  resetTokens        ResetToken[]
+  lineTemplates      LineTemplate[]
+  recurringInvoices  RecurringInvoice[]
+  quotations         Quotation[]
+}
+
+model Administration {
+  id        String   @id @default(uuid())
+  clientId  String
+  taxType   String
+  createdAt DateTime @default(now())
+
+  client User @relation(fields: [clientId], references: [id])
+}
+
+model Customer {
+  id               String   @id @default(uuid())
+  userId           String
+  name             String
+  email            String?
+  phone            String?
+  address          String?
+  vatNumber        String?
+  paymentTermValue Int?
+  paymentTermUnit  String?  // "days", "weeks", "months"
+  // Default invoice line
+  defaultDescription String?
+  defaultUnitPrice   Float?
+  defaultVatRate     Float?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user              User               @relation(fields: [userId], references: [id])
+  invoices          Invoice[]
+  recurringInvoices RecurringInvoice[]
+  quotations        Quotation[]
+}
+
+model Invoice {
+  id                String   @id @default(uuid())
+  clientId          String
+  customerId        String?
+  invoiceNumber     String
+  date              String
+  dueDate           String
+  customerName      String
+  customerAddress   String
+  subtotal          Float
+  vatAmount         Float
+  total             Float
+  paidAmount        Float    @default(0)
+  status            String   @default("draft")
+  bookkeepingStatus String   @default("pending")
+  notes             String?
+  category          String?
+  isCredit          Boolean  @default(false)
+  originalInvoiceId  String?
+  sourceQuotationId  String?
+  remindersSent      Int      @default(0)
+  createdAt          DateTime @default(now())
+
+  client          User          @relation(fields: [clientId], references: [id])
+  customer        Customer?     @relation(fields: [customerId], references: [id])
+  originalInvoice Invoice?      @relation("CreditInvoice", fields: [originalInvoiceId], references: [id])
+  creditInvoices  Invoice[]     @relation("CreditInvoice")
+  items           InvoiceItem[]
+  payments        Payment[]
+  invoiceNotes    InvoiceNote[]
+}
+
+model InvoiceNote {
+  id        String   @id @default(uuid())
+  invoiceId String
+  text      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}
+
+model InvoiceItem {
+  id          String @id @default(uuid())
+  invoiceId   String
+  description String
+  quantity    Float
+  unitPrice   Float
+  vatRate     Float
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}
+
+model Payment {
+  id        String   @id @default(uuid())
+  invoiceId String
+  amount    Float
+  date      String
+  notes     String?
+  createdAt DateTime @default(now())
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}
+
+model LineTemplate {
+  id          String   @id @default(uuid())
+  userId      String
+  name        String
+  description String
+  unitPrice   Float
+  vatRate     Float    @default(21)
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model RecurringInvoice {
+  id           String   @id @default(uuid())
+  clientId     String
+  customerId   String
+  interval     String   // "weekly", "monthly", "quarterly", "yearly"
+  intervalDays Int?
+  nextDate     String
+  templateData String   // JSON: { items, notes, customerName, customerAddress }
+  autoSend     Boolean  @default(false)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  client   User     @relation(fields: [clientId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id])
+}
+
+model Quotation {
+  id                 String   @id @default(uuid())
+  clientId           String
+  customerId         String?
+  quotationNumber    String
+  date               String
+  validUntil         String
+  customerName       String
+  customerAddress    String
+  subtotal           Float
+  vatAmount          Float
+  total              Float
+  status             String   @default("draft") // draft, sent, accepted, expired, rejected, converted
+  notes              String?
+  acceptToken        String?  @unique
+  acceptedAt         DateTime?
+  sentAt             DateTime?
+  convertedInvoiceId String?
+  createdAt          DateTime @default(now())
+
+  client         User            @relation(fields: [clientId], references: [id])
+  customer       Customer?       @relation(fields: [customerId], references: [id])
+  items          QuotationItem[]
+  quotationNotes QuotationNote[]
+}
+
+model QuotationItem {
+  id          String @id @default(uuid())
+  quotationId String
+  description String
+  quantity    Float
+  unitPrice   Float
+  vatRate     Float
+
+  quotation Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+}
+
+model QuotationNote {
+  id          String   @id @default(uuid())
+  quotationId String
+  text        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  quotation Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model VerificationToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model ResetToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}

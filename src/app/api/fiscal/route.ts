@@ -6,5 +6,5 @@ export async function GET(request: NextRequest) {
   if (!clientId) {
     return NextResponse.json({ error: "clientId is required" }, { status: 400 });
   }
-  return NextResponse.json(getFiscalSummary(clientId));
+  return NextResponse.json(await getFiscalSummary(clientId));
 }

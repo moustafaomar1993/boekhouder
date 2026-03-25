@@ -8,6 +8,16 @@ function formatCurrency(amount: number) {
   return new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(amount);
 }
 
+const statusLabels: Record<string, string> = {
+  draft: "Concept",
+  sent: "Verzonden",
+  paid: "Betaald",
+  overdue: "Verlopen",
+  pending: "In afwachting",
+  processing: "In verwerking",
+  processed: "Verwerkt",
+};
+
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
     draft: "bg-gray-100 text-gray-700",
@@ -19,11 +29,18 @@ function StatusBadge({ status }: { status: string }) {
     processed: "bg-green-100 text-green-700",
   };
   return (
-    <span className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize ${colors[status] || "bg-gray-100"}`}>
-      {status}
+    <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${colors[status] || "bg-gray-100"}`}>
+      {statusLabels[status] || status}
     </span>
   );
 }
+
+const filterLabels: Record<string, string> = {
+  all: "Alles",
+  pending: "In afwachting",
+  processing: "In verwerking",
+  processed: "Verwerkt",
+};
 
 export default function BookkeeperDashboard() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -51,6 +68,12 @@ export default function BookkeeperDashboard() {
     return clients.find((c) => c.id === clientId)?.company || clientId;
   }
 
+  function formatDate(dateStr: string) {
+    const parts = dateStr.split("-");
+    if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
+    return dateStr;
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -60,11 +83,11 @@ export default function BookkeeperDashboard() {
             <div className="flex items-center gap-3">
               <Link href="/" className="text-xl font-bold text-emerald-600">Boekhouder</Link>
               <span className="text-gray-300">|</span>
-              <span className="text-sm text-gray-500">Bookkeeper Dashboard</span>
+              <span className="text-sm text-gray-500">Boekhouder Dashboard</span>
             </div>
             <div className="text-right">
               <p className="text-sm font-medium">Pieter van den Berg</p>
-              <p className="text-xs text-gray-500">Bookkeeper</p>
+              <p className="text-xs text-gray-500">Boekhouder</p>
             </div>
           </div>
         </div>
@@ -74,19 +97,19 @@ export default function BookkeeperDashboard() {
         {/* Summary */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-            <p className="text-sm text-gray-500 mb-1">Total Invoices</p>
+            <p className="text-sm text-gray-500 mb-1">Totaal facturen</p>
             <p className="text-2xl font-bold">{invoices.length}</p>
           </div>
           <div className="bg-yellow-50 rounded-xl p-5 shadow-sm border border-yellow-100">
-            <p className="text-sm text-yellow-700 mb-1">Pending Review</p>
+            <p className="text-sm text-yellow-700 mb-1">In afwachting</p>
             <p className="text-2xl font-bold text-yellow-700">{pendingCount}</p>
           </div>
           <div className="bg-blue-50 rounded-xl p-5 shadow-sm border border-blue-100">
-            <p className="text-sm text-blue-700 mb-1">Processing</p>
+            <p className="text-sm text-blue-700 mb-1">In verwerking</p>
             <p className="text-2xl font-bold text-blue-700">{processingCount}</p>
           </div>
           <div className="bg-green-50 rounded-xl p-5 shadow-sm border border-green-100">
-            <p className="text-sm text-green-700 mb-1">Processed</p>
+            <p className="text-sm text-green-700 mb-1">Verwerkt</p>
             <p className="text-2xl font-bold text-green-700">{processedCount}</p>
           </div>
         </div>
@@ -98,11 +121,11 @@ export default function BookkeeperDashboard() {
               <button
                 key={f}
                 onClick={() => setFilter(f)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors capitalize ${
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   filter === f ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
                 }`}
               >
-                {f}
+                {filterLabels[f]}
               </button>
             ))}
           </div>
@@ -111,13 +134,13 @@ export default function BookkeeperDashboard() {
             onChange={(e) => setClientFilter(e.target.value)}
             className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
           >
-            <option value="all">All Clients</option>
+            <option value="all">Alle klanten</option>
             {clients.map((c) => (
               <option key={c.id} value={c.id}>{c.company}</option>
             ))}
           </select>
           <span className="text-sm text-gray-500 ml-auto">
-            Total revenue: <strong>{formatCurrency(totalRevenue)}</strong>
+            Totale omzet: <strong>{formatCurrency(totalRevenue)}</strong>
           </span>
         </div>
 
@@ -126,14 +149,14 @@ export default function BookkeeperDashboard() {
           <table className="w-full">
             <thead>
               <tr className="text-left text-sm text-gray-500 border-b border-gray-100 bg-gray-50">
-                <th className="px-5 py-3 font-medium">Invoice #</th>
-                <th className="px-5 py-3 font-medium">Client</th>
-                <th className="px-5 py-3 font-medium">Customer</th>
-                <th className="px-5 py-3 font-medium">Date</th>
+                <th className="px-5 py-3 font-medium">Factuurnr.</th>
+                <th className="px-5 py-3 font-medium">Klant</th>
+                <th className="px-5 py-3 font-medium">Debiteur</th>
+                <th className="px-5 py-3 font-medium">Datum</th>
                 <th className="px-5 py-3 font-medium">Status</th>
-                <th className="px-5 py-3 font-medium">Bookkeeping</th>
-                <th className="px-5 py-3 font-medium text-right">Amount</th>
-                <th className="px-5 py-3 font-medium text-right">Action</th>
+                <th className="px-5 py-3 font-medium">Boekhouding</th>
+                <th className="px-5 py-3 font-medium text-right">Bedrag</th>
+                <th className="px-5 py-3 font-medium text-right">Actie</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -142,7 +165,7 @@ export default function BookkeeperDashboard() {
                   <td className="px-5 py-4 font-medium">{inv.invoiceNumber}</td>
                   <td className="px-5 py-4 text-gray-600 text-sm">{getClientName(inv.clientId)}</td>
                   <td className="px-5 py-4 text-gray-600">{inv.customerName}</td>
-                  <td className="px-5 py-4 text-gray-600">{inv.date}</td>
+                  <td className="px-5 py-4 text-gray-600">{formatDate(inv.date)}</td>
                   <td className="px-5 py-4"><StatusBadge status={inv.status} /></td>
                   <td className="px-5 py-4"><StatusBadge status={inv.bookkeepingStatus} /></td>
                   <td className="px-5 py-4 text-right font-semibold">{formatCurrency(inv.total)}</td>
@@ -151,7 +174,7 @@ export default function BookkeeperDashboard() {
                       href={`/bookkeeper/invoices/${inv.id}`}
                       className="text-sm text-emerald-600 hover:text-emerald-700 font-medium"
                     >
-                      Review
+                      Bekijken
                     </Link>
                   </td>
                 </tr>
@@ -159,7 +182,7 @@ export default function BookkeeperDashboard() {
               {filtered.length === 0 && (
                 <tr>
                   <td colSpan={8} className="px-5 py-12 text-center text-gray-400">
-                    No invoices match your filters.
+                    Geen facturen gevonden met deze filters.
                   </td>
                 </tr>
               )}

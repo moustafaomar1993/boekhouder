@@ -1,5 +1,6 @@
 import { getUserByEmail } from "@/lib/data";
 import { createVerificationToken } from "@/lib/auth";
+import { sendVerificationEmail } from "@/lib/email";
 
 export async function POST(request: Request) {
   const { email } = await request.json();
@@ -8,9 +9,8 @@ export async function POST(request: Request) {
     return Response.json({ error: "E-mailadres is vereist" }, { status: 400 });
   }
 
-  const user = getUserByEmail(email);
+  const user = await getUserByEmail(email);
   if (!user) {
-    // Don't reveal if user exists or not
     return Response.json({ success: true });
   }
 
@@ -18,10 +18,8 @@ export async function POST(request: Request) {
     return Response.json({ error: "Dit account is al geverifieerd" }, { status: 400 });
   }
 
-  const token = createVerificationToken(user.id);
-
-  // In production, send actual email. For demo, log the link.
-  console.log(`[EMAIL VERIFICATION] Nieuwe verificatielink voor ${email}: /api/auth/verify?token=${token}`);
+  const token = await createVerificationToken(user.id);
+  await sendVerificationEmail(email, user.name, token);
 
   return Response.json({ success: true });
 }

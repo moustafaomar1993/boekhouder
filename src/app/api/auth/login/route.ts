@@ -8,12 +8,12 @@ export async function POST(request: Request) {
     return Response.json({ error: "Gebruikersnaam en wachtwoord zijn vereist" }, { status: 400 });
   }
 
-  const user = getUserByUsername(username);
+  const user = await getUserByUsername(username);
   if (!user || !user.passwordHash) {
     return Response.json({ error: "Ongeldige gebruikersnaam of wachtwoord" }, { status: 401 });
   }
 
-  if (!verifyPassword(password, user.passwordHash)) {
+  if (!(await verifyPassword(password, user.passwordHash))) {
     return Response.json({ error: "Ongeldige gebruikersnaam of wachtwoord" }, { status: 401 });
   }
 

@@ -13,13 +13,13 @@ export async function POST(request: Request) {
     return Response.json({ error: "Wachtwoord voldoet niet aan de eisen" }, { status: 400 });
   }
 
-  const result = consumeResetToken(token);
+  const result = await consumeResetToken(token);
   if ("error" in result) {
     return Response.json({ error: result.error }, { status: 400 });
   }
 
-  const passwordHash = hashPassword(password);
-  updateUserPassword(result.userId, passwordHash);
+  const passwordHash = await hashPassword(password);
+  await updateUserPassword(result.userId, passwordHash);
 
   return Response.json({ success: true });
 }

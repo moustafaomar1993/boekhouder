@@ -1,27 +1,18 @@
-// In-memory data store (replace with a real database in production)
+import { prisma } from "./prisma";
 
-import { v4 as uuid } from "uuid";
-import { hashPassword } from "./auth";
+// Re-export Prisma types for backward compatibility
+export type { User, InvoiceItem, Administration } from "@/generated/prisma/client";
+import type { Invoice as PrismaInvoice, InvoiceItem as PrismaInvoiceItem } from "@/generated/prisma/client";
+
+// Invoice with items included (as returned by API)
+export type Invoice = PrismaInvoice & { items: PrismaInvoiceItem[] };
+
+// --- Types ---
 
 export type UserRole = "client" | "bookkeeper";
-
 export type LegalForm = "eenmanszaak" | "vof" | "bv" | "other";
 export type VatObligation = "yes" | "no" | "unknown";
 export type TaxType = "inkomstenbelasting" | "vennootschapsbelasting";
-
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-  role: UserRole;
-  company?: string;
-  vatNumber?: string;
-  kvkNumber?: string; // Chamber of Commerce number
-  username?: string;
-  passwordHash?: string;
-  isNew?: boolean; // Flag for accountant visibility
-  emailVerified?: boolean;
-}
 
 export interface ClientRegistration {
   companyName: string;
@@ -38,41 +29,6 @@ export interface ClientRegistration {
   accountHolder: string;
 }
 
-export interface Administration {
-  id: string;
-  clientId: string;
-  taxType: TaxType;
-  createdAt: string;
-}
-
-const administrations: Administration[] = [];
-
-export interface InvoiceItem {
-  description: string;
-  quantity: number;
-  unitPrice: number;
-  vatRate: number; // e.g. 21, 9, 0
-}
-
-export interface Invoice {
-  id: string;
-  clientId: string;
-  invoiceNumber: string;
-  date: string;
-  dueDate: string;
-  customerName: string;
-  customerAddress: string;
-  items: InvoiceItem[];
-  subtotal: number;
-  vatAmount: number;
-  total: number;
-  status: "draft" | "sent" | "paid" | "overdue";
-  bookkeepingStatus: "pending" | "processing" | "processed";
-  notes?: string;
-  category?: string;
-  createdAt: string;
-}
-
 export interface FiscalSummary {
   totalRevenue: number;
   totalVatCollected: number;
@@ -81,264 +37,229 @@ export interface FiscalSummary {
   invoiceCount: number;
   paidCount: number;
   overdueCount: number;
+  totalOutstanding: number;
+  totalOverdue: number;
+  paidThisMonth: number;
+  expectedIncome: number;
 }
 
-// Demo data
-const users: User[] = [
-  {
-    id: "client-1",
-    name: "Jan de Vries",
-    email: "jan@devries.nl",
-    role: "client",
-    company: "De Vries Consulting BV",
-    vatNumber: "NL123456789B01",
-    kvkNumber: "12345678",
-  },
-  {
-    id: "client-2",
-    name: "Maria Bakker",
-    email: "maria@bakker.nl",
-    role: "client",
-    company: "Bakker Design Studio",
-    vatNumber: "NL987654321B01",
-    kvkNumber: "87654321",
-  },
-  {
-    id: "bookkeeper-1",
-    name: "Pieter van den Berg",
-    email: "pieter@boekhouder.nl",
-    role: "bookkeeper",
-  },
-];
+// --- User functions ---
 
-const invoices: Invoice[] = [
-  {
-    id: "inv-1",
-    clientId: "client-1",
-    invoiceNumber: "INV-2026-001",
-    date: "2026-01-15",
-    dueDate: "2026-02-15",
-    customerName: "Acme Corp",
-    customerAddress: "Herengracht 100, 1015 Amsterdam",
-    items: [
-      { description: "Consulting services - January", quantity: 40, unitPrice: 95, vatRate: 21 },
-      { description: "Travel expenses", quantity: 1, unitPrice: 150, vatRate: 21 },
-    ],
-    subtotal: 3950,
-    vatAmount: 829.5,
-    total: 4779.5,
-    status: "paid",
-    bookkeepingStatus: "processed",
-    createdAt: "2026-01-15T10:00:00Z",
-  },
-  {
-    id: "inv-2",
-    clientId: "client-1",
-    invoiceNumber: "INV-2026-002",
-    date: "2026-02-01",
-    dueDate: "2026-03-01",
-    customerName: "TechStart BV",
-    customerAddress: "Keizersgracht 200, 1015 Amsterdam",
-    items: [
-      { description: "Software development - February", quantity: 80, unitPrice: 110, vatRate: 21 },
-    ],
-    subtotal: 8800,
-    vatAmount: 1848,
-    total: 10648,
-    status: "sent",
-    bookkeepingStatus: "pending",
-    createdAt: "2026-02-01T09:00:00Z",
-  },
-  {
-    id: "inv-3",
-    clientId: "client-1",
-    invoiceNumber: "INV-2026-003",
-    date: "2026-03-10",
-    dueDate: "2026-04-10",
-    customerName: "Global Solutions",
-    customerAddress: "Prinsengracht 300, 1016 Amsterdam",
-    items: [
-      { description: "Project management Q1", quantity: 1, unitPrice: 5000, vatRate: 21 },
-      { description: "Documentation", quantity: 20, unitPrice: 75, vatRate: 21 },
-    ],
-    subtotal: 6500,
-    vatAmount: 1365,
-    total: 7865,
-    status: "draft",
-    bookkeepingStatus: "pending",
-    createdAt: "2026-03-10T14:00:00Z",
-  },
-  {
-    id: "inv-4",
-    clientId: "client-2",
-    invoiceNumber: "BD-2026-001",
-    date: "2026-01-20",
-    dueDate: "2026-02-20",
-    customerName: "Fashion House NL",
-    customerAddress: "Damrak 50, 1012 Amsterdam",
-    items: [
-      { description: "Brand identity design", quantity: 1, unitPrice: 3500, vatRate: 21 },
-      { description: "Logo variations", quantity: 5, unitPrice: 200, vatRate: 21 },
-    ],
-    subtotal: 4500,
-    vatAmount: 945,
-    total: 5445,
-    status: "paid",
-    bookkeepingStatus: "processed",
-    createdAt: "2026-01-20T11:00:00Z",
-  },
-  {
-    id: "inv-5",
-    clientId: "client-2",
-    invoiceNumber: "BD-2026-002",
-    date: "2026-02-15",
-    dueDate: "2026-03-15",
-    customerName: "Restaurant De Gouden Lepel",
-    customerAddress: "Leidseplein 10, 1017 Amsterdam",
-    items: [
-      { description: "Menu design", quantity: 1, unitPrice: 800, vatRate: 21 },
-      { description: "Website mockups", quantity: 3, unitPrice: 600, vatRate: 21 },
-    ],
-    subtotal: 2600,
-    vatAmount: 546,
-    total: 3146,
-    status: "overdue",
-    bookkeepingStatus: "pending",
-    createdAt: "2026-02-15T08:30:00Z",
-  },
-];
-
-// Data access functions
-export function getUsers(): User[] {
-  return users;
+export async function getUsers() {
+  return prisma.user.findMany();
 }
 
-export function getUser(id: string): User | undefined {
-  return users.find((u) => u.id === id);
+export async function getUser(id: string) {
+  return prisma.user.findUnique({ where: { id } });
 }
 
-export function getClients(): User[] {
-  return users.filter((u) => u.role === "client");
+export async function getClients() {
+  return prisma.user.findMany({ where: { role: "client" } });
 }
 
-export function getInvoicesByClient(clientId: string): Invoice[] {
-  return invoices.filter((i) => i.clientId === clientId);
+export async function getUserByUsername(username: string) {
+  return prisma.user.findUnique({ where: { username } });
 }
 
-export function getAllInvoices(): Invoice[] {
-  return invoices;
+export async function getUserByEmail(email: string) {
+  return prisma.user.findUnique({ where: { email } });
 }
 
-export function getInvoice(id: string): Invoice | undefined {
-  return invoices.find((i) => i.id === id);
+// --- Invoice functions ---
+
+export async function getInvoicesByClient(clientId: string) {
+  return prisma.invoice.findMany({
+    where: { clientId },
+    include: { items: true, _count: { select: { invoiceNotes: true } } },
+  });
 }
 
-export function addInvoice(invoice: Invoice): void {
-  invoices.push(invoice);
+export async function getAllInvoices() {
+  return prisma.invoice.findMany({ include: { items: true, _count: { select: { invoiceNotes: true } } }, orderBy: { createdAt: "desc" } });
 }
 
-export function updateInvoiceBookkeepingStatus(
+export async function getInvoice(id: string) {
+  return prisma.invoice.findUnique({
+    where: { id },
+    include: { items: true },
+  });
+}
+
+export async function addInvoice(data: {
+  clientId: string;
+  customerId?: string | null;
+  invoiceNumber: string;
+  date: string;
+  dueDate: string;
+  customerName: string;
+  customerAddress: string;
+  items: { description: string; quantity: number; unitPrice: number; vatRate: number }[];
+  subtotal: number;
+  vatAmount: number;
+  total: number;
+  status?: string;
+  notes?: string;
+  isCredit?: boolean;
+  originalInvoiceId?: string | null;
+}) {
+  return prisma.invoice.create({
+    data: {
+      clientId: data.clientId,
+      customerId: data.customerId || null,
+      invoiceNumber: data.invoiceNumber,
+      date: data.date,
+      dueDate: data.dueDate,
+      customerName: data.customerName,
+      customerAddress: data.customerAddress,
+      subtotal: data.subtotal,
+      vatAmount: data.vatAmount,
+      total: data.total,
+      status: data.status || "draft",
+      notes: data.notes,
+      isCredit: data.isCredit || false,
+      originalInvoiceId: data.originalInvoiceId || null,
+      items: {
+        create: data.items,
+      },
+    },
+    include: { items: true },
+  });
+}
+
+export async function updateInvoiceBookkeepingStatus(
   id: string,
-  status: Invoice["bookkeepingStatus"],
+  status: string,
   category?: string
-): Invoice | undefined {
-  const invoice = invoices.find((i) => i.id === id);
-  if (invoice) {
-    invoice.bookkeepingStatus = status;
-    if (category) invoice.category = category;
-  }
-  return invoice;
+) {
+  return prisma.invoice.update({
+    where: { id },
+    data: {
+      bookkeepingStatus: status,
+      ...(category && { category }),
+    },
+    include: { items: true },
+  }).catch(() => null);
 }
 
-export function updateInvoiceStatus(
-  id: string,
-  status: Invoice["status"]
-): Invoice | undefined {
-  const invoice = invoices.find((i) => i.id === id);
-  if (invoice) {
-    invoice.status = status;
-  }
-  return invoice;
+export async function updateInvoiceStatus(id: string, status: string) {
+  return prisma.invoice.update({
+    where: { id },
+    data: { status },
+    include: { items: true },
+  }).catch(() => null);
 }
 
-export function getFiscalSummary(clientId: string): FiscalSummary {
-  const clientInvoices = getInvoicesByClient(clientId);
+// --- Fiscal summary ---
+
+export async function getFiscalSummary(clientId: string): Promise<FiscalSummary> {
+  const invoices = await getInvoicesByClient(clientId);
+  const now = new Date();
+  const thisMonth = now.getMonth();
+  const thisYear = now.getFullYear();
+  const today = now.toISOString().split("T")[0];
+
+  // Auto-detect overdue
+  for (const inv of invoices) {
+    if (inv.status === "sent" && inv.dueDate < today) {
+      await prisma.invoice.update({ where: { id: inv.id }, data: { status: "overdue" } });
+      inv.status = "overdue";
+    }
+  }
+
+  const nonCredit = invoices.filter((i) => !i.isCredit);
+  const outstanding = nonCredit.filter((i) => i.status === "sent" || i.status === "partial" || i.status === "overdue");
+  const overdue = nonCredit.filter((i) => i.status === "overdue");
+
+  // Payments this month
+  const payments = await prisma.payment.findMany({
+    where: { invoice: { clientId } },
+  });
+  const paidThisMonth = payments
+    .filter((p) => { const d = new Date(p.date); return d.getMonth() === thisMonth && d.getFullYear() === thisYear; })
+    .reduce((sum, p) => sum + p.amount, 0);
+
+  // Expected income: sent invoices due this month
+  const expected = nonCredit
+    .filter((i) => (i.status === "sent" || i.status === "partial") && new Date(i.dueDate).getMonth() === thisMonth && new Date(i.dueDate).getFullYear() === thisYear)
+    .reduce((sum, i) => sum + Math.abs(i.total) - i.paidAmount, 0);
+
   return {
-    totalRevenue: clientInvoices.reduce((sum, i) => sum + i.subtotal, 0),
-    totalVatCollected: clientInvoices.reduce((sum, i) => sum + i.vatAmount, 0),
-    totalVatDeductible: 0, // Simplified - would come from expense invoices
-    vatToPay: clientInvoices.reduce((sum, i) => sum + i.vatAmount, 0),
-    invoiceCount: clientInvoices.length,
-    paidCount: clientInvoices.filter((i) => i.status === "paid").length,
-    overdueCount: clientInvoices.filter((i) => i.status === "overdue").length,
+    totalRevenue: nonCredit.reduce((sum, i) => sum + i.subtotal, 0),
+    totalVatCollected: nonCredit.reduce((sum, i) => sum + i.vatAmount, 0),
+    totalVatDeductible: 0,
+    vatToPay: nonCredit.reduce((sum, i) => sum + i.vatAmount, 0),
+    invoiceCount: invoices.length,
+    paidCount: nonCredit.filter((i) => i.status === "paid").length,
+    overdueCount: overdue.length,
+    totalOutstanding: outstanding.reduce((sum, i) => sum + Math.abs(i.total) - i.paidAmount, 0),
+    totalOverdue: overdue.reduce((sum, i) => sum + Math.abs(i.total) - i.paidAmount, 0),
+    paidThisMonth,
+    expectedIncome: expected,
   };
 }
 
-// Auth & Registration functions
+// --- Registration ---
 
-export function getUserByUsername(username: string): User | undefined {
-  return users.find((u) => u.username === username);
-}
-
-export function getUserByEmail(email: string): User | undefined {
-  return users.find((u) => u.email === email);
-}
-
-function determineTaxType(legalForm: LegalForm): TaxType {
+function determineTaxType(legalForm: string): TaxType {
   if (legalForm === "bv") return "vennootschapsbelasting";
   return "inkomstenbelasting";
 }
 
-export function registerClient(
+export async function registerClient(
   data: ClientRegistration,
   username: string,
   passwordHash: string
-): { user: User; administration: Administration } {
-  const userId = `client-${uuid().slice(0, 8)}`;
+) {
+  const user = await prisma.user.create({
+    data: {
+      name: data.contactName,
+      email: data.email,
+      role: "client",
+      company: data.companyName,
+      vatNumber: data.vatNumber,
+      kvkNumber: data.kvkNumber,
+      username,
+      passwordHash,
+      isNew: true,
+      emailVerified: false,
+      phone: data.phone,
+      vatId: data.vatId,
+      vatObligation: data.vatObligation,
+      iban: data.iban,
+      bankName: data.bankName,
+      accountHolder: data.accountHolder,
+      legalForm: data.legalForm,
+    },
+  });
 
-  const user: User = {
-    id: userId,
-    name: data.contactName,
-    email: data.email,
-    role: "client",
-    company: data.companyName,
-    vatNumber: data.vatNumber,
-    kvkNumber: data.kvkNumber,
-    username,
-    passwordHash,
-    isNew: true,
-  };
-  users.push(user);
-
-  const administration: Administration = {
-    id: `admin-${uuid().slice(0, 8)}`,
-    clientId: userId,
-    taxType: determineTaxType(data.legalForm),
-    createdAt: new Date().toISOString(),
-  };
-  administrations.push(administration);
+  const administration = await prisma.administration.create({
+    data: {
+      clientId: user.id,
+      taxType: determineTaxType(data.legalForm),
+    },
+  });
 
   return { user, administration };
 }
 
-export function getAdministrationByClient(clientId: string): Administration | undefined {
-  return administrations.find((a) => a.clientId === clientId);
+export async function getAdministrationByClient(clientId: string) {
+  return prisma.administration.findFirst({ where: { clientId } });
 }
 
-export function verifyUserEmail(userId: string): boolean {
-  const user = users.find((u) => u.id === userId);
-  if (user) {
-    user.emailVerified = true;
-    return true;
-  }
-  return false;
+// --- User updates ---
+
+export async function verifyUserEmail(userId: string): Promise<boolean> {
+  const result = await prisma.user.update({
+    where: { id: userId },
+    data: { emailVerified: true },
+  }).catch(() => null);
+  return !!result;
 }
 
-export function updateUserPassword(userId: string, passwordHash: string): boolean {
-  const user = users.find((u) => u.id === userId);
-  if (user) {
-    user.passwordHash = passwordHash;
-    return true;
-  }
-  return false;
+export async function updateUserPassword(userId: string, passwordHash: string): Promise<boolean> {
+  const result = await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash },
+  }).catch(() => null);
+  return !!result;
 }

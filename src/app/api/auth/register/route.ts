@@ -1,6 +1,7 @@
 import { registerClient, getUserByUsername, getUserByEmail } from "@/lib/data";
 import type { ClientRegistration } from "@/lib/data";
 import { hashPassword, checkPasswordStrength, createVerificationToken } from "@/lib/auth";
+import { sendVerificationEmail } from "@/lib/email";
 
 export async function POST(request: Request) {
   const body = await request.json();
@@ -19,22 +20,19 @@ export async function POST(request: Request) {
     return Response.json({ error: "Wachtwoord voldoet niet aan de eisen" }, { status: 400 });
   }
 
-  if (getUserByUsername(username)) {
+  if (await getUserByUsername(username)) {
     return Response.json({ error: "Gebruikersnaam is al in gebruik" }, { status: 409 });
   }
 
-  if (getUserByEmail(registration.email)) {
+  if (await getUserByEmail(registration.email)) {
     return Response.json({ error: "E-mailadres is al geregistreerd" }, { status: 409 });
   }
 
-  const passwordHash = hashPassword(password);
-  const { user, administration } = registerClient(registration, username, passwordHash);
+  const passwordHash = await hashPassword(password);
+  const { user, administration } = await registerClient(registration, username, passwordHash);
 
-  // Create email verification token
-  const verificationToken = createVerificationToken(user.id);
-
-  // In production, send actual email. For demo, log the link.
-  console.log(`[EMAIL VERIFICATION] Verificatielink voor ${registration.email}: /api/auth/verify?token=${verificationToken}`);
+  const verificationToken = await createVerificationToken(user.id);
+  await sendVerificationEmail(registration.email, registration.contactName, verificationToken);
 
   return Response.json({
     success: true,

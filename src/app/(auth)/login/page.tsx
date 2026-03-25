@@ -44,7 +44,14 @@ function LoginForm() {
         return;
       }
 
-      router.push("/client");
+      // Route based on role
+      if (data.user?.role === "admin") {
+        router.push("/admin");
+      } else if (data.user?.role === "bookkeeper") {
+        router.push("/bookkeeper");
+      } else {
+        router.push("/client");
+      }
     } catch {
       setError("Er ging iets mis. Probeer het opnieuw.");
     } finally {

@@ -9,12 +9,12 @@ export async function GET(request: Request) {
     return Response.json({ error: "Token is vereist" }, { status: 400 });
   }
 
-  const result = consumeVerificationToken(token);
+  const result = await consumeVerificationToken(token);
   if ("error" in result) {
     return Response.json({ error: result.error }, { status: 400 });
   }
 
-  verifyUserEmail(result.userId);
+  await verifyUserEmail(result.userId);
 
   return Response.json({ success: true });
 }
