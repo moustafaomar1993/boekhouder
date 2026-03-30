@@ -1,15 +1,16 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 const sidebarItems = [
   {
     key: "dashboard",
     label: "Dashboard",
     icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1" />
       </svg>
     ),
@@ -18,7 +19,7 @@ const sidebarItems = [
     key: "verkoop",
     label: "Verkoop",
     icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
       </svg>
     ),
@@ -27,7 +28,7 @@ const sidebarItems = [
     key: "inkoop",
     label: "Inkoop",
     icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
       </svg>
     ),
@@ -36,7 +37,7 @@ const sidebarItems = [
     key: "bank",
     label: "Bank",
     icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
       </svg>
     ),
@@ -45,7 +46,7 @@ const sidebarItems = [
     key: "fiscaal",
     label: "BTW & Fiscaal",
     icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
       </svg>
     ),
@@ -54,9 +55,29 @@ const sidebarItems = [
 
 function ClientLayoutInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
 
   const isMainPage = pathname === "/client";
   const [activeSection, setActiveSection] = useState("dashboard");
+  const lastRefresh = useRef(0);
+
+  const refreshSession = useCallback(() => {
+    const now = Date.now();
+    if (now - lastRefresh.current < 5 * 60 * 1000) return;
+    lastRefresh.current = now;
+    fetch("/api/auth/refresh", { method: "POST" }).then((res) => {
+      if (res.status === 401) router.push("/login");
+    }).catch(() => {});
+  }, [router]);
+
+  useEffect(() => {
+    const events = ["click", "keydown", "scroll", "mousemove", "touchstart"];
+    events.forEach((e) => window.addEventListener(e, refreshSession, { passive: true }));
+    refreshSession();
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, refreshSession));
+    };
+  }, [refreshSession]);
 
   useEffect(() => {
     if (isMainPage && typeof window !== "undefined") {
@@ -68,30 +89,30 @@ function ClientLayoutInner({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen">
       {/* Sidebar */}
-      <aside className="w-60 bg-white border-r border-gray-200 flex flex-col fixed top-0 left-0 h-full z-40">
+      <aside className="w-[250px] bg-[#004854] flex flex-col fixed top-0 left-0 h-full z-40">
         {/* Logo */}
-        <div className="px-5 py-5 border-b border-gray-100">
-          <Link href="/client" className="text-xl font-bold text-blue-600">
-            Boekhouder
+        <div className="px-5 py-5 border-b border-white/10">
+          <Link href="/client" className="block">
+            <Image src="/logo.svg" alt="HAMZA Deboekhouder" width={150} height={39} className="brightness-0 invert" priority />
           </Link>
-          <p className="text-xs text-gray-400 mt-0.5">Boekhoudplatform</p>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 px-3 py-4 space-y-1">
+        <nav className="flex-1 px-3 py-5 space-y-0.5">
+          <p className="px-3 mb-3 text-[10px] font-semibold uppercase tracking-widest text-white/30">Menu</p>
           {sidebarItems.map((item) => {
             const isActive = isMainPage && activeSection === item.key;
             return (
               <Link
                 key={item.key}
                 href={item.key === "dashboard" ? "/client" : `/client?section=${item.key}`}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                   isActive
-                    ? "bg-blue-50 text-blue-700 border-l-2 border-blue-600 -ml-[2px]"
-                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                    ? "bg-[#00AFCB]/15 text-[#00AFCB]"
+                    : "text-white/60 hover:bg-white/5 hover:text-white/90"
                 }`}
               >
-                <span className={isActive ? "text-blue-600" : "text-gray-400"}>{item.icon}</span>
+                <span className={isActive ? "text-[#00AFCB]" : "text-white/40"}>{item.icon}</span>
                 {item.label}
               </Link>
             );
@@ -99,11 +120,12 @@ function ClientLayoutInner({ children }: { children: React.ReactNode }) {
         </nav>
 
         {/* Bottom links */}
-        <div className="px-3 pb-4 space-y-1 border-t border-gray-100 pt-3">
+        <div className="px-3 pb-4 space-y-0.5 border-t border-white/10 pt-3">
+          <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-widest text-white/30">Beheer</p>
           <Link
             href="/client/customers"
-            className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-              pathname === "/client/customers" ? "bg-gray-100 text-gray-900" : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+            className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all ${
+              pathname === "/client/customers" ? "bg-[#00AFCB]/15 text-[#00AFCB]" : "text-white/50 hover:bg-white/5 hover:text-white/80"
             }`}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -113,8 +135,8 @@ function ClientLayoutInner({ children }: { children: React.ReactNode }) {
           </Link>
           <Link
             href="/client/settings"
-            className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-              pathname === "/client/settings" ? "bg-gray-100 text-gray-900" : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+            className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all ${
+              pathname === "/client/settings" ? "bg-[#00AFCB]/15 text-[#00AFCB]" : "text-white/50 hover:bg-white/5 hover:text-white/80"
             }`}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -123,11 +145,27 @@ function ClientLayoutInner({ children }: { children: React.ReactNode }) {
             </svg>
             Instellingen
           </Link>
+
+          <div className="pt-2 mt-2 border-t border-white/10">
+            <button
+              onClick={() => {
+                fetch("/api/auth/logout", { method: "POST" }).then(() => {
+                  router.push("/login");
+                });
+              }}
+              className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all text-white/40 hover:bg-red-500/10 hover:text-red-400 w-full text-left"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+              Uitloggen
+            </button>
+          </div>
         </div>
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 ml-60 min-h-screen bg-gray-50">
+      <main className="flex-1 ml-[250px] min-h-screen bg-[#F5F7FA]">
         {children}
       </main>
     </div>

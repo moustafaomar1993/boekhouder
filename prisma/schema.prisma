@@ -221,9 +221,10 @@ model QuotationNote {
 }
 
 model Session {
-  id        String   @id @default(uuid())
-  userId    String
-  createdAt DateTime @default(now())
+  id           String   @id @default(uuid())
+  userId       String
+  createdAt    DateTime @default(now())
+  lastActivity DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id])
 }

@@ -261,11 +261,11 @@ function ClientPortalContent() {
       {/* Page header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{sectionTitles[section] || "Dashboard"}</h1>
-          {client && <p className="text-sm text-gray-500 mt-0.5">{client.company}</p>}
+          <h1 className="text-2xl font-bold text-[#3C2C1E]">{sectionTitles[section] || "Dashboard"}</h1>
+          {client && <p className="text-sm text-[#6F5C4B]/70 mt-0.5">{client.company}</p>}
         </div>
         {section === "verkoop" && (
-          <Link href="/client/invoices/new" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">
+          <Link href="/client/invoices/new" className="bg-[#004854] text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-[#003640] transition-all shadow-sm">
             + Nieuwe factuur
           </Link>
         )}
@@ -277,50 +277,50 @@ function ClientPortalContent() {
       {section === "dashboard" && (
         <div className="space-y-6">
           {/* Verkoop summary */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">Verkoop</h2>
-              <Link href="/client?section=verkoop" className="text-sm text-blue-600 hover:text-blue-700">Bekijken</Link>
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100/80 p-6">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-lg font-semibold text-[#3C2C1E]">Verkoop</h2>
+              <Link href="/client?section=verkoop" className="text-sm text-[#00AFCB] hover:text-[#004854] font-medium transition-colors">Bekijken</Link>
             </div>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-blue-50 rounded-lg p-4">
-                <p className="text-xs text-blue-600 font-medium mb-1">Omzet deze maand</p>
-                <p className="text-xl font-bold text-blue-700">{formatCurrency(omzetDezeMaand)}</p>
+              <div className="bg-[#E6F9FC] rounded-xl p-4 border border-[#00AFCB]/10">
+                <p className="text-xs text-[#004854]/60 font-medium mb-1">Omzet deze maand</p>
+                <p className="text-xl font-bold text-[#004854]">{formatCurrency(omzetDezeMaand)}</p>
               </div>
-              <div className="bg-amber-50 rounded-lg p-4">
+              <div className="bg-amber-50 rounded-xl p-4 border border-amber-100">
                 <p className="text-xs text-amber-600 font-medium mb-1">Openstaand</p>
                 <p className="text-xl font-bold text-amber-700">{openstaand.length} facturen</p>
                 <p className="text-xs text-amber-500 mt-0.5">{formatCurrency(openstaand.reduce((s, i) => s + i.total, 0))}</p>
               </div>
-              <div className="bg-red-50 rounded-lg p-4">
+              <div className="bg-red-50 rounded-xl p-4 border border-red-100">
                 <p className="text-xs text-red-600 font-medium mb-1">Te laat</p>
                 <p className="text-xl font-bold text-red-700">{teLaat.length} facturen</p>
                 <p className="text-xs text-red-500 mt-0.5">{formatCurrency(teLaat.reduce((s, i) => s + i.total, 0))}</p>
               </div>
-              <div className="bg-green-50 rounded-lg p-4">
-                <p className="text-xs text-green-600 font-medium mb-1">Betaald deze maand</p>
-                <p className="text-xl font-bold text-green-700">{fiscal ? formatCurrency(fiscal.paidThisMonth) : "..."}</p>
+              <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-100">
+                <p className="text-xs text-emerald-600 font-medium mb-1">Betaald deze maand</p>
+                <p className="text-xl font-bold text-emerald-700">{fiscal ? formatCurrency(fiscal.paidThisMonth) : "..."}</p>
               </div>
             </div>
           </div>
 
           {/* Inkoop summary */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">Inkoop</h2>
-              <Link href="/client?section=inkoop" className="text-sm text-blue-600 hover:text-blue-700">Bekijken</Link>
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100/80 p-6">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-lg font-semibold text-[#3C2C1E]">Inkoop</h2>
+              <Link href="/client?section=inkoop" className="text-sm text-[#00AFCB] hover:text-[#004854] font-medium transition-colors">Bekijken</Link>
             </div>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-gray-50 rounded-lg p-4">
+              <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
                 <p className="text-xs text-gray-500 font-medium mb-1">Kosten deze maand</p>
                 <p className="text-xl font-bold text-gray-700">-</p>
                 <p className="text-xs text-gray-400 mt-0.5">Nog geen data</p>
               </div>
-              <div className="bg-gray-50 rounded-lg p-4">
+              <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
                 <p className="text-xs text-gray-500 font-medium mb-1">Recente uploads</p>
                 <p className="text-xl font-bold text-gray-700">0</p>
               </div>
-              <div className="bg-gray-50 rounded-lg p-4">
+              <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
                 <p className="text-xs text-gray-500 font-medium mb-1">Openstaand bij leveranciers</p>
                 <p className="text-xl font-bold text-gray-700">-</p>
               </div>
@@ -334,10 +334,10 @@ function ClientPortalContent() {
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Bank summary */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900">Bank</h2>
-                <Link href="/client?section=bank" className="text-sm text-blue-600 hover:text-blue-700">Bekijken</Link>
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100/80 p-6">
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-lg font-semibold text-[#3C2C1E]">Bank</h2>
+                <Link href="/client?section=bank" className="text-sm text-[#00AFCB] hover:text-[#004854] font-medium transition-colors">Bekijken</Link>
               </div>
               <div className="space-y-3">
                 <div className="flex justify-between items-center py-2 border-b border-gray-50">
@@ -357,16 +357,16 @@ function ClientPortalContent() {
             </div>
 
             {/* BTW summary */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900">BTW</h2>
-                <Link href="/client?section=fiscaal" className="text-sm text-blue-600 hover:text-blue-700">Bekijken</Link>
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100/80 p-6">
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-lg font-semibold text-[#3C2C1E]">BTW</h2>
+                <Link href="/client?section=fiscaal" className="text-sm text-[#00AFCB] hover:text-[#004854] font-medium transition-colors">Bekijken</Link>
               </div>
               <div className="space-y-3">
-                <div className="bg-orange-50 rounded-lg p-4">
-                  <p className="text-xs text-orange-600 font-medium mb-1">Geschatte BTW af te dragen</p>
-                  <p className="text-2xl font-bold text-orange-700">{fiscal ? formatCurrency(fiscal.vatToPay) : "..."}</p>
-                  <p className="text-xs text-orange-500 mt-1">Q{quarter} {currentYear}</p>
+                <div className="bg-amber-50 rounded-xl p-4 border border-amber-100">
+                  <p className="text-xs text-amber-600 font-medium mb-1">Geschatte BTW af te dragen</p>
+                  <p className="text-2xl font-bold text-amber-700">{fiscal ? formatCurrency(fiscal.vatToPay) : "..."}</p>
+                  <p className="text-xs text-amber-500 mt-1">Q{quarter} {currentYear}</p>
                 </div>
                 <div className="flex justify-between items-center py-2 border-b border-gray-50">
                   <span className="text-sm text-gray-600">BTW ontvangen</span>
@@ -381,33 +381,33 @@ function ClientPortalContent() {
           </div>
 
           {/* Fiscaal summary */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">Fiscaal overzicht</h2>
-              <Link href="/client?section=fiscaal" className="text-sm text-blue-600 hover:text-blue-700">Bekijken</Link>
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100/80 p-6">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-lg font-semibold text-[#3C2C1E]">Fiscaal overzicht</h2>
+              <Link href="/client?section=fiscaal" className="text-sm text-[#00AFCB] hover:text-[#004854] font-medium transition-colors">Bekijken</Link>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-purple-50 rounded-lg p-4">
-                <p className="text-xs text-purple-600 font-medium mb-1">Totale omzet (excl. BTW)</p>
-                <p className="text-xl font-bold text-purple-700">{fiscal ? formatCurrency(fiscal.totalRevenue) : "..."}</p>
+              <div className="bg-[#E6F9FC] rounded-xl p-4 border border-[#00AFCB]/10">
+                <p className="text-xs text-[#004854]/60 font-medium mb-1">Totale omzet (excl. BTW)</p>
+                <p className="text-xl font-bold text-[#004854]">{fiscal ? formatCurrency(fiscal.totalRevenue) : "..."}</p>
               </div>
               {client?.legalForm === "bv" ? (
-                <div className="bg-indigo-50 rounded-lg p-4">
-                  <p className="text-xs text-indigo-600 font-medium mb-1">Vennootschapsbelasting (geschat)</p>
-                  <p className="text-xl font-bold text-indigo-700">-</p>
-                  <p className="text-xs text-indigo-400 mt-0.5">Berekening volgt</p>
+                <div className="bg-[#6F5C4B]/5 rounded-xl p-4 border border-[#6F5C4B]/10">
+                  <p className="text-xs text-[#6F5C4B] font-medium mb-1">Vennootschapsbelasting (geschat)</p>
+                  <p className="text-xl font-bold text-[#3C2C1E]">-</p>
+                  <p className="text-xs text-[#6F5C4B]/50 mt-0.5">Berekening volgt</p>
                 </div>
               ) : (
-                <div className="bg-indigo-50 rounded-lg p-4">
-                  <p className="text-xs text-indigo-600 font-medium mb-1">Inkomstenbelasting (geschat)</p>
-                  <p className="text-xl font-bold text-indigo-700">-</p>
-                  <p className="text-xs text-indigo-400 mt-0.5">Berekening volgt</p>
+                <div className="bg-[#6F5C4B]/5 rounded-xl p-4 border border-[#6F5C4B]/10">
+                  <p className="text-xs text-[#6F5C4B] font-medium mb-1">Inkomstenbelasting (geschat)</p>
+                  <p className="text-xl font-bold text-[#3C2C1E]">-</p>
+                  <p className="text-xs text-[#6F5C4B]/50 mt-0.5">Berekening volgt</p>
                 </div>
               )}
-              <div className="bg-rose-50 rounded-lg p-4">
-                <p className="text-xs text-rose-600 font-medium mb-1">Geschatte belastingdruk</p>
-                <p className="text-xl font-bold text-rose-700">-</p>
-                <p className="text-xs text-rose-400 mt-0.5">Binnenkort beschikbaar</p>
+              <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+                <p className="text-xs text-gray-500 font-medium mb-1">Geschatte belastingdruk</p>
+                <p className="text-xl font-bold text-gray-700">-</p>
+                <p className="text-xs text-gray-400 mt-0.5">Binnenkort beschikbaar</p>
               </div>
             </div>
           </div>

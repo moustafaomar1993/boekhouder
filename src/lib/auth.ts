@@ -5,9 +5,11 @@ import { prisma } from "./prisma";
 
 // --- Session management ---
 
+const SESSION_INACTIVITY_MS = 30 * 60 * 1000; // 30 minutes
+
 export async function createSession(userId: string) {
   const session = await prisma.session.create({
-    data: { id: uuid(), userId },
+    data: { id: uuid(), userId, lastActivity: new Date() },
   });
 
   const cookieStore = await cookies();
@@ -25,7 +27,31 @@ export async function getSession() {
   const cookieStore = await cookies();
   const sessionId = cookieStore.get("boekhouder_session")?.value;
   if (!sessionId) return null;
-  return prisma.session.findUnique({ where: { id: sessionId } });
+
+  const session = await prisma.session.findUnique({ where: { id: sessionId } });
+  if (!session) return null;
+
+  // Check inactivity timeout (30 minutes)
+  if (Date.now() - session.lastActivity.getTime() > SESSION_INACTIVITY_MS) {
+    await prisma.session.delete({ where: { id: session.id } }).catch(() => {});
+    cookieStore.delete("boekhouder_session");
+    return null;
+  }
+
+  return session;
+}
+
+export async function refreshSession() {
+  const cookieStore = await cookies();
+  const sessionId = cookieStore.get("boekhouder_session")?.value;
+  if (!sessionId) return null;
+
+  const session = await prisma.session.update({
+    where: { id: sessionId },
+    data: { lastActivity: new Date() },
+  }).catch(() => null);
+
+  return session;
 }
 
 export async function destroySession() {
