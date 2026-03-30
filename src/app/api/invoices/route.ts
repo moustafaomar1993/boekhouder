@@ -4,6 +4,17 @@ import { prisma } from "@/lib/prisma";
 
 export async function GET(request: NextRequest) {
   const clientId = request.nextUrl.searchParams.get("clientId");
+  const customerId = request.nextUrl.searchParams.get("customerId");
+
+  if (customerId) {
+    const invoices = await prisma.invoice.findMany({
+      where: { customerId },
+      include: { items: true },
+      orderBy: { createdAt: "desc" },
+    });
+    return NextResponse.json(invoices);
+  }
+
   const invoices = clientId ? await getInvoicesByClient(clientId) : await getAllInvoices();
   return NextResponse.json(invoices);
 }

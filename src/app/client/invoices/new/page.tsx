@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useRef, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 interface LineItem {
@@ -25,6 +25,15 @@ interface Customer {
   defaultVatRate: number | null;
 }
 
+interface InvoiceRecord {
+  id: string;
+  invoiceNumber: string;
+  date: string;
+  total: number;
+  notes: string | null;
+  items: LineItem[];
+}
+
 const CLIENT_ID = "client-1";
 
 function calculateDueDate(invoiceDate: string, termValue: number = 1, termUnit: string = "months"): string {
@@ -45,8 +54,11 @@ function formatDate(dateStr: string) {
   return dateStr;
 }
 
-export default function NewInvoice() {
+function NewInvoiceContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const preselectedCustomerId = searchParams.get("customerId");
+  const [step, setStep] = useState<"select-customer" | "create-invoice">(preselectedCustomerId ? "create-invoice" : "select-customer");
   const [saving, setSaving] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [lineTemplates, setLineTemplates] = useState<{ id: string; name: string; description: string; unitPrice: number; vatRate: number }[]>([]);
@@ -54,12 +66,14 @@ export default function NewInvoice() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerSearch, setCustomerSearch] = useState("");
-  const [showDropdown, setShowDropdown] = useState(false);
+  const [customerInvoices, setCustomerInvoices] = useState<InvoiceRecord[]>([]);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // New customer inline form state
   const [showNewCustomerForm, setShowNewCustomerForm] = useState(false);
   const [newCustomerForm, setNewCustomerForm] = useState({ name: "", email: "", phone: "", address: "", vatNumber: "" });
   const [newCustomerError, setNewCustomerError] = useState("");
   const [newCustomerSaving, setNewCustomerSaving] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const [form, setForm] = useState({
     invoiceNumber: "",
@@ -78,10 +92,16 @@ export default function NewInvoice() {
       if (!r.ok) return;
       return r.json();
     }).then((data) => {
-      if (Array.isArray(data)) setCustomers(data);
+      if (Array.isArray(data)) {
+        setCustomers(data);
+        // Auto-select customer from URL param
+        if (preselectedCustomerId) {
+          const match = data.find((c: Customer) => c.id === preselectedCustomerId);
+          if (match) handleSelectCustomer(match);
+        }
+      }
     }).catch(() => {});
 
-    // Fetch next invoice number
     fetch("/api/invoices/next-number").then((r) => {
       if (!r.ok) return;
       return r.json();
@@ -91,12 +111,10 @@ export default function NewInvoice() {
       }
     }).catch(() => {});
 
-    // Fetch line templates
     fetch("/api/line-templates").then((r) => r.ok ? r.json() : []).then((data) => {
       if (Array.isArray(data)) setLineTemplates(data);
     }).catch(() => {});
 
-    // Fetch company profile for preview
     fetch("/api/profile").then((r) => {
       if (!r.ok) return;
       return r.json();
@@ -105,51 +123,65 @@ export default function NewInvoice() {
     }).catch(() => {});
   }, []);
 
-  // Close dropdown on click outside
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setShowDropdown(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
+  // Filtered & sorted customers for tile view
+  const filteredCustomers = customers
+    .filter((c) => {
+      if (!customerSearch) return true;
+      return c.name.toLowerCase().startsWith(customerSearch.toLowerCase());
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
 
-  const filteredCustomers = customers.filter((c) => {
-    if (!customerSearch) return true;
-    const q = customerSearch.toLowerCase();
-    return c.name.toLowerCase().includes(q) || (c.email && c.email.toLowerCase().includes(q));
-  });
-
-  function selectCustomer(customer: Customer) {
+  function handleSelectCustomer(customer: Customer) {
     setSelectedCustomer(customer);
-    setCustomerSearch(customer.name);
     const dueDate = customer.paymentTermValue && customer.paymentTermUnit
       ? calculateDueDate(form.date, customer.paymentTermValue, customer.paymentTermUnit)
       : calculateDueDate(form.date);
-    setForm({
-      ...form,
+    setForm((prev) => ({
+      ...prev,
       customerName: customer.name,
       customerAddress: customer.address || "",
       dueDate,
-    });
-    // Pre-fill line items from customer defaults
-    if (customer.defaultDescription) {
-      setItems([{
-        description: customer.defaultDescription,
-        quantity: 1,
-        unitPrice: customer.defaultUnitPrice || 0,
-        vatRate: customer.defaultVatRate ?? 21,
-      }]);
-    }
-    setShowDropdown(false);
+    }));
+    // Keep line items empty (no customer defaults per requirements)
+    setItems([{ description: "", quantity: 1, unitPrice: 0, vatRate: 21 }]);
+
+    // Fetch previous invoices for this customer
+    fetch(`/api/invoices?customerId=${customer.id}`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => {
+        if (Array.isArray(data)) setCustomerInvoices(data);
+      })
+      .catch(() => setCustomerInvoices([]));
+
+    setStep("create-invoice");
   }
 
-  function clearCustomer() {
+  function handleChangeCustomer() {
     setSelectedCustomer(null);
     setCustomerSearch("");
-    setForm({ ...form, customerName: "", customerAddress: "" });
+    setCustomerInvoices([]);
+    setForm((prev) => ({ ...prev, customerName: "", customerAddress: "" }));
+    setItems([{ description: "", quantity: 1, unitPrice: 0, vatRate: 21 }]);
+    setStep("select-customer");
+  }
+
+  function handleCopyInvoice(invoice: InvoiceRecord) {
+    if (invoice.items && invoice.items.length > 0) {
+      setItems(invoice.items.map((item) => ({
+        description: item.description,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        vatRate: item.vatRate,
+      })));
+    }
+    if (invoice.notes) {
+      setForm((prev) => ({ ...prev, notes: invoice.notes || "" }));
+    }
+    // Visual feedback
+    setCopiedId(invoice.id);
+    setTimeout(() => setCopiedId(null), 2000);
+    // Scroll to top of form
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function handleCreateCustomer(e: React.FormEvent) {
@@ -173,9 +205,9 @@ export default function NewInvoice() {
       }
       const newCustomer = await res.json();
       setCustomers((prev) => [...prev, newCustomer]);
-      selectCustomer(newCustomer);
       setShowNewCustomerForm(false);
       setNewCustomerForm({ name: "", email: "", phone: "", address: "", vatNumber: "" });
+      handleSelectCustomer(newCustomer);
     } finally {
       setNewCustomerSaving(false);
     }
@@ -223,98 +255,79 @@ export default function NewInvoice() {
     router.push("/client");
   }
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center gap-3">
-              <Link href="/client" className="text-blue-600 hover:text-blue-700">
-                &larr; Terug
-              </Link>
-              <span className="text-gray-300">|</span>
-              <h1 className="text-lg font-semibold">Nieuwe verkoopfactuur</h1>
+  // ──────────────────────────────────────────────
+  // STEP 1: Customer Selection Screen
+  // ──────────────────────────────────────────────
+  if (step === "select-customer") {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <header className="bg-white border-b border-gray-200">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center h-16">
+              <div className="flex items-center gap-3">
+                <Link href="/client" className="text-blue-600 hover:text-blue-700">
+                  &larr; Terug
+                </Link>
+                <span className="text-gray-300">|</span>
+                <h1 className="text-lg font-semibold">Kies een klant</h1>
+              </div>
             </div>
           </div>
-        </div>
-      </header>
+        </header>
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-6">
-
-          {/* Customer Selection */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Klant / Debiteur</label>
-            <div className="relative" ref={dropdownRef}>
-              {selectedCustomer ? (
-                <div className="flex items-center justify-between border border-blue-200 bg-blue-50 rounded-lg px-4 py-2.5">
-                  <div>
-                    <p className="text-sm font-medium">{selectedCustomer.name}</p>
-                    {selectedCustomer.address && (
-                      <p className="text-xs text-gray-500">{selectedCustomer.address}</p>
-                    )}
-                  </div>
-                  <button
-                    onClick={clearCustomer}
-                    className="text-gray-400 hover:text-gray-600 ml-3"
-                    title="Klant wijzigen"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <input
-                    type="text"
-                    value={customerSearch}
-                    onChange={(e) => {
-                      setCustomerSearch(e.target.value);
-                      setShowDropdown(true);
-                    }}
-                    onFocus={() => setShowDropdown(true)}
-                    placeholder="Zoek een klant of typ een naam..."
-                    className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                  />
-                  {showDropdown && (
-                    <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                      {filteredCustomers.length > 0 ? (
-                        filteredCustomers.map((c) => (
-                          <button
-                            key={c.id}
-                            onClick={() => selectCustomer(c)}
-                            className="w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-50 last:border-0"
-                          >
-                            <p className="text-sm font-medium">{c.name}</p>
-                            {c.address && <p className="text-xs text-gray-500">{c.address}</p>}
-                          </button>
-                        ))
-                      ) : (
-                        <div className="px-4 py-3 text-sm text-gray-500">
-                          Geen klanten gevonden
-                        </div>
-                      )}
-                      <button
-                        onClick={() => {
-                          setShowDropdown(false);
-                          setShowNewCustomerForm(true);
-                          setNewCustomerForm({ ...newCustomerForm, name: customerSearch });
-                        }}
-                        className="w-full text-left px-4 py-3 text-blue-600 hover:bg-blue-50 border-t border-gray-100 text-sm font-medium"
-                      >
-                        + Nieuwe klant toevoegen
-                      </button>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
+        <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {/* Search */}
+          <div className="mb-6">
+            <input
+              type="text"
+              value={customerSearch}
+              onChange={(e) => setCustomerSearch(e.target.value)}
+              placeholder="Zoek klant op naam..."
+              autoFocus
+              className="w-full max-w-md border border-gray-300 rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none shadow-sm"
+            />
           </div>
+
+          {/* Customer Tiles */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {filteredCustomers.map((customer) => (
+              <button
+                key={customer.id}
+                onClick={() => handleSelectCustomer(customer)}
+                className="bg-white border border-gray-200 rounded-xl p-4 text-left hover:border-blue-400 hover:shadow-md transition-all group"
+              >
+                <p className="font-medium text-gray-900 group-hover:text-blue-600 truncate">
+                  {customer.name}
+                </p>
+                {customer.email && (
+                  <p className="text-xs text-gray-500 mt-1 truncate">{customer.email}</p>
+                )}
+              </button>
+            ))}
+
+            {/* New customer tile */}
+            <button
+              onClick={() => {
+                setShowNewCustomerForm(true);
+                setNewCustomerForm({ ...newCustomerForm, name: customerSearch });
+              }}
+              className="border-2 border-dashed border-gray-300 rounded-xl p-4 text-left hover:border-blue-400 hover:bg-blue-50/50 transition-all group flex items-center justify-center min-h-[72px]"
+            >
+              <span className="text-sm font-medium text-gray-500 group-hover:text-blue-600">
+                + Nieuwe klant
+              </span>
+            </button>
+          </div>
+
+          {filteredCustomers.length === 0 && customerSearch && (
+            <p className="text-sm text-gray-500 mt-4">
+              Geen klanten gevonden die beginnen met &ldquo;{customerSearch}&rdquo;
+            </p>
+          )}
 
           {/* Inline New Customer Form */}
           {showNewCustomerForm && (
-            <div className="border border-blue-200 bg-blue-50/50 rounded-xl p-5">
+            <div className="mt-6 max-w-lg border border-blue-200 bg-blue-50/50 rounded-xl p-5">
               <div className="flex justify-between items-center mb-3">
                 <h3 className="text-sm font-semibold text-gray-700">Nieuwe klant toevoegen</h3>
                 <button
@@ -330,16 +343,14 @@ export default function NewInvoice() {
                 <div className="bg-red-50 text-red-700 rounded-lg px-3 py-2 text-sm mb-3">{newCustomerError}</div>
               )}
               <form onSubmit={handleCreateCustomer} className="space-y-3">
-                <div>
-                  <input
-                    type="text"
-                    value={newCustomerForm.name}
-                    onChange={(e) => setNewCustomerForm({ ...newCustomerForm, name: e.target.value })}
-                    placeholder="Naam klant *"
-                    autoFocus
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
-                  />
-                </div>
+                <input
+                  type="text"
+                  value={newCustomerForm.name}
+                  onChange={(e) => setNewCustomerForm({ ...newCustomerForm, name: e.target.value })}
+                  placeholder="Naam klant *"
+                  autoFocus
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+                />
                 <div className="grid grid-cols-2 gap-3">
                   <input
                     type="email"
@@ -391,6 +402,54 @@ export default function NewInvoice() {
               </form>
             </div>
           )}
+        </main>
+      </div>
+    );
+  }
+
+  // ──────────────────────────────────────────────
+  // STEP 2: Invoice Creation Form
+  // ──────────────────────────────────────────────
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <header className="bg-white border-b border-gray-200">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center gap-3">
+              <button onClick={handleChangeCustomer} className="text-blue-600 hover:text-blue-700">
+                &larr; Andere klant
+              </button>
+              <span className="text-gray-300">|</span>
+              <h1 className="text-lg font-semibold">Nieuwe verkoopfactuur</h1>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-6">
+
+          {/* Selected Customer Display */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Klant / Debiteur</label>
+            <div className="flex items-center justify-between border border-blue-200 bg-blue-50 rounded-lg px-4 py-2.5">
+              <div>
+                <p className="text-sm font-medium">{selectedCustomer?.name}</p>
+                {selectedCustomer?.address && (
+                  <p className="text-xs text-gray-500">{selectedCustomer.address}</p>
+                )}
+              </div>
+              <button
+                onClick={handleChangeCustomer}
+                className="text-gray-400 hover:text-gray-600 ml-3"
+                title="Klant wijzigen"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
 
           {/* Factuurgegevens */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -423,32 +482,6 @@ export default function NewInvoice() {
               />
             </div>
           </div>
-
-          {/* Manual customer fields (shown when no customer selected) */}
-          {!selectedCustomer && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Naam debiteur</label>
-                <input
-                  type="text"
-                  value={form.customerName}
-                  onChange={(e) => setForm({ ...form, customerName: e.target.value })}
-                  placeholder="Bedrijfsnaam"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Adres debiteur</label>
-                <input
-                  type="text"
-                  value={form.customerAddress}
-                  onChange={(e) => setForm({ ...form, customerAddress: e.target.value })}
-                  placeholder="Straat, Plaats"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                />
-              </div>
-            </div>
-          )}
 
           {/* Factuurregels */}
           <div>
@@ -595,6 +628,56 @@ export default function NewInvoice() {
             </button>
           </div>
         </div>
+
+        {/* Invoice History for this customer */}
+        {selectedCustomer && (
+          <div className="mt-8 bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+            <h3 className="text-sm font-semibold text-gray-700 mb-4">
+              Eerdere facturen voor {selectedCustomer.name}
+            </h3>
+            {customerInvoices.length === 0 ? (
+              <p className="text-sm text-gray-500">Geen eerdere facturen voor deze klant</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-500 border-b border-gray-200">
+                      <th className="pb-2 font-medium">Factuurnummer</th>
+                      <th className="pb-2 font-medium">Datum</th>
+                      <th className="pb-2 font-medium">Bedrag</th>
+                      <th className="pb-2 font-medium">Omschrijving</th>
+                      <th className="pb-2 font-medium"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {customerInvoices.map((inv) => (
+                      <tr key={inv.id} className="border-b border-gray-50 hover:bg-gray-50">
+                        <td className="py-3 font-mono text-gray-700">{inv.invoiceNumber}</td>
+                        <td className="py-3 text-gray-600">{formatDate(inv.date)}</td>
+                        <td className="py-3 font-medium">{formatCurrency(inv.total)}</td>
+                        <td className="py-3 text-gray-500 truncate max-w-[200px]">
+                          {inv.items?.[0]?.description || "—"}
+                        </td>
+                        <td className="py-3 text-right">
+                          <button
+                            onClick={() => handleCopyInvoice(inv)}
+                            className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all ${
+                              copiedId === inv.id
+                                ? "border-green-300 bg-green-50 text-green-700"
+                                : "border-blue-200 text-blue-600 hover:bg-blue-50"
+                            }`}
+                          >
+                            {copiedId === inv.id ? "Gekopieerd!" : "Kopiëren"}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
       </main>
 
       {/* Preview Panel */}
@@ -610,7 +693,6 @@ export default function NewInvoice() {
           </div>
           <div className="p-6">
             <div className="border border-gray-200 rounded-lg p-6 bg-white text-sm" style={{ fontSize: "12px" }}>
-              {/* Invoice header */}
               <div className="flex justify-between mb-6">
                 <div>
                   <p className="text-xl font-bold text-blue-600">Factuur</p>
@@ -626,7 +708,6 @@ export default function NewInvoice() {
                 </div>
               </div>
 
-              {/* Meta */}
               <div className="grid grid-cols-2 gap-4 mb-6 pb-4 border-b border-gray-100">
                 <div>
                   <p className="text-gray-400 uppercase" style={{ fontSize: "10px" }}>Factuurgegevens</p>
@@ -640,7 +721,6 @@ export default function NewInvoice() {
                 </div>
               </div>
 
-              {/* Items table */}
               <table className="w-full mb-4" style={{ fontSize: "11px" }}>
                 <thead>
                   <tr className="text-gray-400 uppercase border-b border-gray-200" style={{ fontSize: "9px" }}>
@@ -664,7 +744,6 @@ export default function NewInvoice() {
                 </tbody>
               </table>
 
-              {/* Totals */}
               <div className="w-48 ml-auto space-y-1" style={{ fontSize: "11px" }}>
                 <div className="flex justify-between">
                   <span className="text-gray-500">Subtotaal</span>
@@ -696,5 +775,13 @@ export default function NewInvoice() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function NewInvoice() {
+  return (
+    <Suspense>
+      <NewInvoiceContent />
+    </Suspense>
   );
 }

@@ -177,6 +177,8 @@ export default function RegisterPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [usernameManuallyEdited, setUsernameManuallyEdited] = useState(false);
+  const [kvkLoading, setKvkLoading] = useState(false);
+  const [kvkMessage, setKvkMessage] = useState("");
 
   const currentStep = STEPS[step];
   const currentSection = currentStep.section;
@@ -196,6 +198,28 @@ export default function RegisterPage() {
       return next;
     });
   }, [usernameManuallyEdited]);
+
+  async function handleKvkLookup() {
+    const kvk = data.kvkNumber.replace(/\s/g, "");
+    if (!kvk || !/^\d{8}$/.test(kvk)) return;
+    setKvkLoading(true);
+    setKvkMessage("");
+    try {
+      const res = await fetch(`/api/kvk/lookup?kvkNummer=${kvk}`);
+      const result = await res.json();
+      if (!res.ok) { setKvkMessage(result.error || "Ophalen mislukt"); return; }
+      setData((prev) => ({
+        ...prev,
+        companyName: result.company || prev.companyName,
+        legalForm: result.legalForm || prev.legalForm,
+      }));
+      setKvkMessage("Gegevens opgehaald uit KVK");
+    } catch {
+      setKvkMessage("Kan geen verbinding maken met KVK");
+    } finally {
+      setKvkLoading(false);
+    }
+  }
 
   function validate(): string | null {
     const value = data[currentStep.field];
@@ -418,6 +442,18 @@ export default function RegisterPage() {
                   autoFocus
                   className="w-full px-5 py-4 border-2 border-gray-200 rounded-xl text-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-shadow"
                 />
+              )}
+
+              {currentStep.field === "kvkNumber" && data.kvkNumber.replace(/\s/g, "").length === 8 && (
+                <div className="mt-3">
+                  <button type="button" onClick={handleKvkLookup} disabled={kvkLoading}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+                    {kvkLoading ? "Ophalen..." : "Gegevens ophalen uit KVK"}
+                  </button>
+                  {kvkMessage && (
+                    <p className={`text-sm mt-2 ${kvkMessage.includes("opgehaald") ? "text-emerald-600" : "text-red-500"}`}>{kvkMessage}</p>
+                  )}
+                </div>
               )}
 
               {showPasswordStrength && (

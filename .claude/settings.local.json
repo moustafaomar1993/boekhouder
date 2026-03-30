@@ -3,7 +3,11 @@
     "allow": [
       "Bash(curl -s -X POST http://localhost:3000/api/auth/register -H \"Content-Type: application/json\" -d '{:*)",
       "Bash(npx prisma:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(curl -s http://localhost:3000/api/kvk/lookup?kvkNummer=69599084)",
+      "Bash(curl -s \"http://localhost:3000/api/kvk/lookup?kvkNummer=68750110\")",
+      "Bash(npm run:*)",
+      "mcp__Claude_Preview__preview_start"
     ]
   }
 }
