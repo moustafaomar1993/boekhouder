@@ -7,7 +7,11 @@
       "Bash(curl -s http://localhost:3000/api/kvk/lookup?kvkNummer=69599084)",
       "Bash(curl -s \"http://localhost:3000/api/kvk/lookup?kvkNummer=68750110\")",
       "Bash(npm run:*)",
-      "mcp__Claude_Preview__preview_start"
+      "mcp__Claude_Preview__preview_start",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(ssh root@65.21.107.54 \"systemctl start nginx ; cd /var/www/boekhouder && bash deploy/deploy.sh\")"
     ]
   }
 }
