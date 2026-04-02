@@ -109,8 +109,9 @@ export default function ViewQuotation({ params }: { params: Promise<{ id: string
 
         {/* Items */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-6 border-b border-gray-100"><h3 className="text-lg font-semibold">Offerteregels</h3></div>
-          <table className="w-full">
+          <div className="p-4 sm:p-6 border-b border-gray-100"><h3 className="text-lg font-semibold">Offerteregels</h3></div>
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[500px]">
             <thead><tr className="text-left text-sm text-gray-500 border-b border-gray-100 bg-gray-50">
               <th className="px-6 py-3 font-medium">Omschrijving</th><th className="px-6 py-3 font-medium text-right">Aantal</th>
               <th className="px-6 py-3 font-medium text-right">Prijs per stuk</th><th className="px-6 py-3 font-medium text-right">BTW %</th>
@@ -124,8 +125,9 @@ export default function ViewQuotation({ params }: { params: Promise<{ id: string
               ))}
             </tbody>
           </table>
-          <div className="border-t border-gray-200 p-6">
-            <div className="w-64 ml-auto space-y-2">
+          </div>
+          <div className="border-t border-gray-200 p-4 sm:p-6">
+            <div className="w-full sm:w-64 sm:ml-auto space-y-2">
               <div className="flex justify-between text-sm"><span className="text-gray-500">Subtotaal</span><span className="font-medium">{fmt(q.subtotal)}</span></div>
               <div className="flex justify-between text-sm"><span className="text-gray-500">BTW</span><span className="font-medium">{fmt(q.vatAmount)}</span></div>
               <div className="flex justify-between text-lg font-bold border-t border-gray-200 pt-2"><span>Totaal</span><span>{fmt(q.total)}</span></div>

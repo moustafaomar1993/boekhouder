@@ -25,7 +25,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!customer) return Response.json({ error: "Klant niet gevonden" }, { status: 404 });
 
   const body = await request.json();
-  const { name, email, phone, address, vatNumber, paymentTermValue, paymentTermUnit, defaultDescription, defaultUnitPrice, defaultVatRate } = body;
+  const { name, email, phone, address, vatNumber, paymentTermValue, paymentTermUnit, defaultDescription, defaultUnitPrice, defaultVatRate, kvkNumber, legalForm, sbiCode, sbiDescription, city, postalCode } = body;
 
   if (name !== undefined && (!name || !name.trim())) {
     return Response.json({ error: "Naam is verplicht" }, { status: 400 });
@@ -44,6 +44,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       ...(defaultDescription !== undefined && { defaultDescription: defaultDescription || null }),
       ...(defaultUnitPrice !== undefined && { defaultUnitPrice: defaultUnitPrice || null }),
       ...(defaultVatRate !== undefined && { defaultVatRate: defaultVatRate ?? null }),
+      ...(kvkNumber !== undefined && { kvkNumber: kvkNumber?.trim() || null }),
+      ...(legalForm !== undefined && { legalForm: legalForm?.trim() || null }),
+      ...(sbiCode !== undefined && { sbiCode: sbiCode?.trim() || null }),
+      ...(sbiDescription !== undefined && { sbiDescription: sbiDescription?.trim() || null }),
+      ...(city !== undefined && { city: city?.trim() || null }),
+      ...(postalCode !== undefined && { postalCode: postalCode?.trim() || null }),
     },
   });
 

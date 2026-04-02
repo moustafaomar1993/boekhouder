@@ -199,15 +199,50 @@ export function validateRsin(rsin: string): string | null {
 
 // ── API client ──
 
-function getConfig() {
-  const apiKey = process.env.KVK_API_KEY;
-  const baseUrl = process.env.KVK_API_BASE_URL || "https://api.kvk.nl/test/api";
-  if (!apiKey) throw new Error("KVK_API_KEY environment variable is not set");
+// Simple in-memory cache for DB settings (5 min TTL)
+let _configCache: { apiKey: string; baseUrl: string; ts: number } | null = null;
+const CONFIG_TTL = 5 * 60 * 1000;
+
+async function getConfig(): Promise<{ apiKey: string; baseUrl: string }> {
+  // Return cached config if fresh
+  if (_configCache && Date.now() - _configCache.ts < CONFIG_TTL) {
+    return { apiKey: _configCache.apiKey, baseUrl: _configCache.baseUrl };
+  }
+
+  let apiKey = "";
+  let baseUrl = "";
+
+  // Try reading from database first
+  try {
+    const { prisma } = await import("@/lib/prisma");
+    const [dbKey, dbUrl] = await Promise.all([
+      prisma.systemSetting.findUnique({ where: { key: "kvk_api_key" } }),
+      prisma.systemSetting.findUnique({ where: { key: "kvk_api_base_url" } }),
+    ]);
+    if (dbKey?.value) apiKey = dbKey.value;
+    if (dbUrl?.value) baseUrl = dbUrl.value;
+  } catch {
+    // DB not available, fall through to env
+  }
+
+  // Fall back to environment variables
+  if (!apiKey) apiKey = process.env.KVK_API_KEY || "";
+  if (!baseUrl) baseUrl = process.env.KVK_API_BASE_URL || "";
+  if (!baseUrl) baseUrl = "https://api.kvk.nl/test/api";
+
+  if (!apiKey) throw new Error("KVK API-sleutel is niet geconfigureerd. Stel deze in via Admin > Instellingen.");
+
+  _configCache = { apiKey, baseUrl, ts: Date.now() };
   return { apiKey, baseUrl };
 }
 
+// Clear config cache (call after saving new settings)
+export function clearKvkConfigCache() {
+  _configCache = null;
+}
+
 async function kvkFetch<T>(endpoint: string, params: Record<string, string | number | boolean> = {}): Promise<T> {
-  const { apiKey, baseUrl } = getConfig();
+  const { apiKey, baseUrl } = await getConfig();
 
   const url = new URL(`${baseUrl}${endpoint}`);
   for (const [key, value] of Object.entries(params)) {

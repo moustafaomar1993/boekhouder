@@ -273,23 +273,23 @@ export default function EditInvoice({ params }: { params: Promise<{ id: string }
             <h3 className="text-sm font-medium text-gray-700 mb-3">Factuurregels</h3>
             <div className="space-y-3">
               {items.map((item, index) => (
-                <div key={index} className="grid grid-cols-12 gap-2 items-end">
-                  <div className="col-span-5">
+                <div key={index} className="grid grid-cols-1 md:grid-cols-12 gap-2 md:items-end bg-gray-50 md:bg-transparent rounded-lg md:rounded-none p-3 md:p-0">
+                  <div className="md:col-span-5">
                     {index === 0 && <label className="block text-xs text-gray-500 mb-1">Omschrijving</label>}
                     <input type="text" value={item.description} onChange={(e) => updateItem(index, "description", e.target.value)}
                       placeholder="Dienst of product" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
                   </div>
-                  <div className="col-span-2">
+                  <div className="md:col-span-2">
                     {index === 0 && <label className="block text-xs text-gray-500 mb-1">Aantal</label>}
                     <input type="number" min="1" value={item.quantity} onChange={(e) => updateItem(index, "quantity", Number(e.target.value))}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
                   </div>
-                  <div className="col-span-2">
+                  <div className="md:col-span-2">
                     {index === 0 && <label className="block text-xs text-gray-500 mb-1">Prijs per stuk</label>}
                     <input type="number" min="0" step="0.01" value={item.unitPrice} onChange={(e) => updateItem(index, "unitPrice", Number(e.target.value))}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
                   </div>
-                  <div className="col-span-2">
+                  <div className="md:col-span-2">
                     {index === 0 && <label className="block text-xs text-gray-500 mb-1">BTW %</label>}
                     <select value={item.vatRate} onChange={(e) => updateItem(index, "vatRate", Number(e.target.value))}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
@@ -298,7 +298,7 @@ export default function EditInvoice({ params }: { params: Promise<{ id: string }
                       <option value={0}>0%</option>
                     </select>
                   </div>
-                  <div className="col-span-1 flex justify-center">
+                  <div className="md:col-span-1 flex md:justify-center justify-end">
                     <button onClick={() => removeItem(index)} className="text-red-400 hover:text-red-600 p-2" title="Regel verwijderen">&times;</button>
                   </div>
                 </div>
@@ -317,7 +317,7 @@ export default function EditInvoice({ params }: { params: Promise<{ id: string }
 
           {/* Totals */}
           <div className="border-t border-gray-200 pt-4">
-            <div className="w-64 ml-auto space-y-2">
+            <div className="w-full sm:w-64 sm:ml-auto space-y-2">
               <div className="flex justify-between text-sm"><span className="text-gray-500">Subtotaal</span><span className="font-medium">{formatCurrency(subtotal)}</span></div>
               <div className="flex justify-between text-sm"><span className="text-gray-500">BTW</span><span className="font-medium">{formatCurrency(vatAmount)}</span></div>
               <div className="flex justify-between text-lg font-bold border-t border-gray-200 pt-2"><span>Totaal incl. BTW</span><span>{formatCurrency(total)}</span></div>

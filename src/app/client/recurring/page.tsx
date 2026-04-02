@@ -172,7 +172,8 @@ export default function RecurringPage() {
             </button>
           </div>
         ) : items.length > 0 && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          {/* Desktop table */}
+          <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             <table className="w-full">
               <thead>
                 <tr className="text-left text-sm text-gray-500 border-b border-gray-100 bg-gray-50">
@@ -216,6 +217,39 @@ export default function RecurringPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="md:hidden space-y-3">
+            {items.map((item) => (
+              <div key={item.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div>
+                    <p className="font-medium text-gray-900">{item.customer.name}</p>
+                    <p className="text-sm text-gray-500 mt-0.5">{intervalLabels[item.interval] || item.interval}</p>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium flex-shrink-0 ${item.active ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500"}`}>
+                    {item.active ? "Actief" : "Gepauzeerd"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-4 text-sm text-gray-600 mb-3">
+                  <span>Volgende: {formatDate(item.nextDate)}</span>
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${item.autoSend ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"}`}>
+                    Auto: {item.autoSend ? "Ja" : "Nee"}
+                  </span>
+                </div>
+                <div className="flex gap-2 pt-3 border-t border-gray-100">
+                  <button onClick={() => toggleActive(item.id, item.active)}
+                    className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 font-medium">
+                    {item.active ? "Pauzeren" : "Activeren"}
+                  </button>
+                  <button onClick={() => handleDelete(item.id)}
+                    className="text-xs px-3 py-1.5 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 font-medium">
+                    Verwijderen
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </main>

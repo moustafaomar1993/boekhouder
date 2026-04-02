@@ -7,6 +7,7 @@ const geist = Geist({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "Boekhouder - Bookkeeping Platform",
   description: "Professional bookkeeping platform for clients and bookkeepers",
+  viewport: "width=device-width, initial-scale=1, viewport-fit=cover",
 };
 
 export default function RootLayout({

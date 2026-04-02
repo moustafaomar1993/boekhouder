@@ -111,7 +111,7 @@ export default function ViewInvoice({ params }: { params: Promise<{ id: string }
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         {/* Action Buttons */}
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-2 sm:gap-3">
           {s === "draft" && (
             <button onClick={() => handleAction("edit")} disabled={!!actionLoading}
               className="px-5 py-3 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 disabled:opacity-50">
@@ -170,7 +170,7 @@ export default function ViewInvoice({ params }: { params: Promise<{ id: string }
               )}
             </div>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 text-sm">
             <div><p className="text-gray-500">Factuurdatum</p><p className="font-medium">{formatDate(invoice.date)}</p></div>
             <div><p className="text-gray-500">Vervaldatum</p><p className="font-medium">{formatDate(invoice.dueDate)}</p></div>
             <div><p className="text-gray-500">Debiteur</p><p className="font-medium">{invoice.customerName}</p></div>
@@ -180,8 +180,9 @@ export default function ViewInvoice({ params }: { params: Promise<{ id: string }
 
         {/* Line Items */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-6 border-b border-gray-100"><h3 className="text-lg font-semibold">Factuurregels</h3></div>
-          <table className="w-full">
+          <div className="p-4 sm:p-6 border-b border-gray-100"><h3 className="text-lg font-semibold">Factuurregels</h3></div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[500px]">
             <thead>
               <tr className="text-left text-sm text-gray-500 border-b border-gray-100 bg-gray-50">
                 <th className="px-6 py-3 font-medium">Omschrijving</th>
@@ -202,9 +203,10 @@ export default function ViewInvoice({ params }: { params: Promise<{ id: string }
                 </tr>
               ))}
             </tbody>
-          </table>
-          <div className="border-t border-gray-200 p-6">
-            <div className="w-64 ml-auto space-y-2">
+            </table>
+          </div>
+          <div className="border-t border-gray-200 p-4 sm:p-6">
+            <div className="w-full sm:w-64 sm:ml-auto space-y-2">
               <div className="flex justify-between text-sm"><span className="text-gray-500">Subtotaal</span><span className="font-medium">{formatCurrency(invoice.subtotal)}</span></div>
               <div className="flex justify-between text-sm"><span className="text-gray-500">BTW</span><span className="font-medium">{formatCurrency(invoice.vatAmount)}</span></div>
               <div className="flex justify-between text-lg font-bold border-t border-gray-200 pt-2"><span>Totaal</span><span>{formatCurrency(invoice.total)}</span></div>

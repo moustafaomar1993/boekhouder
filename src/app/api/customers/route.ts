@@ -18,7 +18,7 @@ export async function POST(request: Request) {
   if (!session) return Response.json({ error: "Niet ingelogd" }, { status: 401 });
 
   const body = await request.json();
-  const { name, email, phone, address, vatNumber, paymentTermValue, paymentTermUnit, defaultDescription, defaultUnitPrice, defaultVatRate } = body;
+  const { name, email, phone, address, vatNumber, paymentTermValue, paymentTermUnit, defaultDescription, defaultUnitPrice, defaultVatRate, kvkNumber, legalForm, sbiCode, sbiDescription, city, postalCode } = body;
 
   if (!name || !name.trim()) {
     return Response.json({ error: "Naam is verplicht" }, { status: 400 });
@@ -37,6 +37,12 @@ export async function POST(request: Request) {
       defaultDescription: defaultDescription || null,
       defaultUnitPrice: defaultUnitPrice || null,
       defaultVatRate: defaultVatRate ?? null,
+      kvkNumber: kvkNumber?.trim() || null,
+      legalForm: legalForm?.trim() || null,
+      sbiCode: sbiCode?.trim() || null,
+      sbiDescription: sbiDescription?.trim() || null,
+      city: city?.trim() || null,
+      postalCode: postalCode?.trim() || null,
     },
   });
 

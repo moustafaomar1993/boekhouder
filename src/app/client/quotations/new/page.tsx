@@ -152,30 +152,30 @@ export default function NewQuotation() {
             <h3 className="text-sm font-medium text-gray-700 mb-3">Offerteregels</h3>
             <div className="space-y-3">
               {items.map((item, idx) => (
-                <div key={idx} className="grid grid-cols-12 gap-2 items-end">
-                  <div className="col-span-5">
+                <div key={idx} className="grid grid-cols-1 md:grid-cols-12 gap-2 md:items-end bg-gray-50 md:bg-transparent rounded-lg md:rounded-none p-3 md:p-0">
+                  <div className="md:col-span-5">
                     {idx === 0 && <label className="block text-xs text-gray-500 mb-1">Omschrijving</label>}
                     <input type="text" value={item.description} onChange={(e) => updateItem(idx, "description", e.target.value)}
                       placeholder="Dienst of product" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
-                  <div className="col-span-2">
+                  <div className="md:col-span-2">
                     {idx === 0 && <label className="block text-xs text-gray-500 mb-1">Aantal</label>}
                     <input type="number" min="1" value={item.quantity} onChange={(e) => updateItem(idx, "quantity", Number(e.target.value))}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
-                  <div className="col-span-2">
+                  <div className="md:col-span-2">
                     {idx === 0 && <label className="block text-xs text-gray-500 mb-1">Prijs per stuk</label>}
                     <input type="number" min="0" step="0.01" value={item.unitPrice} onChange={(e) => updateItem(idx, "unitPrice", Number(e.target.value))}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
-                  <div className="col-span-2">
+                  <div className="md:col-span-2">
                     {idx === 0 && <label className="block text-xs text-gray-500 mb-1">BTW %</label>}
                     <select value={item.vatRate} onChange={(e) => updateItem(idx, "vatRate", Number(e.target.value))}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500">
                       <option value={21}>21%</option><option value={9}>9%</option><option value={0}>0%</option>
                     </select>
                   </div>
-                  <div className="col-span-1 flex justify-center">
+                  <div className="md:col-span-1 flex md:justify-center justify-end">
                     <button onClick={() => items.length > 1 && setItems((p) => p.filter((_, i) => i !== idx))} className="text-red-400 hover:text-red-600 p-2">&times;</button>
                   </div>
                 </div>
@@ -193,7 +193,7 @@ export default function NewQuotation() {
 
           {/* Totals */}
           <div className="border-t border-gray-200 pt-4">
-            <div className="w-64 ml-auto space-y-2">
+            <div className="w-full sm:w-64 sm:ml-auto space-y-2">
               <div className="flex justify-between text-sm"><span className="text-gray-500">Subtotaal</span><span className="font-medium">{formatCurrency(subtotal)}</span></div>
               <div className="flex justify-between text-sm"><span className="text-gray-500">BTW</span><span className="font-medium">{formatCurrency(vatAmount)}</span></div>
               <div className="flex justify-between text-lg font-bold border-t border-gray-200 pt-2"><span>Totaal incl. BTW</span><span>{formatCurrency(total)}</span></div>
@@ -217,7 +217,7 @@ export default function NewQuotation() {
 
       {/* Preview Panel */}
       {showPreview && (
-        <div className="fixed top-0 right-0 w-[480px] h-full bg-white border-l border-gray-200 shadow-xl z-50 overflow-y-auto">
+        <div className="fixed inset-0 sm:inset-auto sm:top-0 sm:right-0 sm:w-[480px] sm:h-full bg-white sm:border-l border-gray-200 shadow-xl z-50 overflow-y-auto">
           <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center">
             <h2 className="text-sm font-semibold text-gray-700">Voorbeeld offerte</h2>
             <button onClick={() => setShowPreview(false)} className="text-gray-400 hover:text-gray-600">
@@ -230,7 +230,7 @@ export default function NewQuotation() {
                 <div><p className="text-xl font-bold text-blue-600">Offerte</p><p className="text-gray-500">{form.quotationNumber || "—"}</p></div>
                 <div className="text-right text-gray-500" style={{ fontSize: "11px" }}><p className="font-semibold text-gray-700">Uw bedrijf</p></div>
               </div>
-              <div className="grid grid-cols-2 gap-4 mb-6 pb-4 border-b border-gray-100">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6 pb-4 border-b border-gray-100">
                 <div><p className="text-gray-400 uppercase" style={{ fontSize: "10px" }}>Offertegegevens</p><p><strong>Datum:</strong> {form.date ? formatDate(form.date) : "—"}</p><p><strong>Geldig tot:</strong> {form.validUntil ? formatDate(form.validUntil) : "—"}</p></div>
                 <div><p className="text-gray-400 uppercase" style={{ fontSize: "10px" }}>Klant</p><p className="font-semibold">{form.customerName || "—"}</p><p>{form.customerAddress || "—"}</p></div>
               </div>
@@ -242,7 +242,7 @@ export default function NewQuotation() {
                   <tr key={i} className="border-b border-gray-50"><td className="py-2">{it.description || "—"}</td><td className="text-right py-2">{it.quantity}</td><td className="text-right py-2">{formatCurrency(it.unitPrice)}</td><td className="text-right py-2 font-medium">{formatCurrency(it.quantity * it.unitPrice)}</td></tr>
                 ))}</tbody>
               </table>
-              <div className="w-48 ml-auto space-y-1" style={{ fontSize: "11px" }}>
+              <div className="w-full sm:w-48 sm:ml-auto space-y-1" style={{ fontSize: "11px" }}>
                 <div className="flex justify-between"><span className="text-gray-500">Subtotaal</span><span>{formatCurrency(subtotal)}</span></div>
                 <div className="flex justify-between"><span className="text-gray-500">BTW</span><span>{formatCurrency(vatAmount)}</span></div>
                 <div className="flex justify-between font-bold text-base border-t border-gray-200 pt-2 mt-2"><span>Totaal</span><span>{formatCurrency(total)}</span></div>

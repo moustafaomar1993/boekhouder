@@ -293,7 +293,7 @@ export default function RegisterPage() {
   const [kvkSelected, setKvkSelected] = useState(false);
   const [kvkFilledFields, setKvkFilledFields] = useState<Set<string>>(new Set());
   const [kvkProfileLoading, setKvkProfileLoading] = useState(false);
-  const searchTimeout = useRef<ReturnType<typeof setTimeout>>();
+  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const currentStep = STEPS[step];
   const currentSection = currentStep.section;
@@ -705,9 +705,9 @@ export default function RegisterPage() {
                       <div className="px-3 py-2 bg-gray-50 border-b border-gray-100">
                         <p className="text-xs text-[#6F5C4B]/50 font-medium">Resultaten uit KVK</p>
                       </div>
-                      {kvkSearchResults.map((result) => (
+                      {kvkSearchResults.map((result, idx) => (
                         <button
-                          key={result.kvkNummer}
+                          key={`${result.kvkNummer}-${idx}`}
                           type="button"
                           onClick={() => selectKvkCompany(result)}
                           className="w-full text-left px-4 py-3 hover:bg-[#E6F9FC]/50 transition-colors border-b border-gray-50 last:border-0"

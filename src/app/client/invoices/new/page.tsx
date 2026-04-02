@@ -488,57 +488,64 @@ function NewInvoiceContent() {
             <h3 className="text-sm font-medium text-gray-700 mb-3">Factuurregels</h3>
             <div className="space-y-3">
               {items.map((item, index) => (
-                <div key={index} className="grid grid-cols-12 gap-2 items-end">
-                  <div className="col-span-5">
-                    {index === 0 && <label className="block text-xs text-gray-500 mb-1">Omschrijving</label>}
+                <div key={index} className="grid grid-cols-1 md:grid-cols-12 gap-2 md:items-end bg-gray-50 md:bg-transparent rounded-lg md:rounded-none p-3 md:p-0">
+                  <div className="md:col-span-5">
+                    <label className="block text-xs text-gray-500 mb-1 md:hidden">Omschrijving</label>
+                    {index === 0 && <label className="hidden md:block text-xs text-gray-500 mb-1">Omschrijving</label>}
                     <input
                       type="text"
                       value={item.description}
                       onChange={(e) => updateItem(index, "description", e.target.value)}
                       placeholder="Dienst of product"
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 md:py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                     />
                   </div>
-                  <div className="col-span-2">
-                    {index === 0 && <label className="block text-xs text-gray-500 mb-1">Aantal</label>}
-                    <input
-                      type="number"
-                      min="1"
-                      value={item.quantity}
-                      onChange={(e) => updateItem(index, "quantity", Number(e.target.value))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                    />
+                  <div className="grid grid-cols-3 gap-2 md:contents">
+                    <div className="md:col-span-2">
+                      <label className="block text-xs text-gray-500 mb-1 md:hidden">Aantal</label>
+                      {index === 0 && <label className="hidden md:block text-xs text-gray-500 mb-1">Aantal</label>}
+                      <input
+                        type="number"
+                        min="1"
+                        value={item.quantity}
+                        onChange={(e) => updateItem(index, "quantity", Number(e.target.value))}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2.5 md:py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-xs text-gray-500 mb-1 md:hidden">Prijs</label>
+                      {index === 0 && <label className="hidden md:block text-xs text-gray-500 mb-1">Prijs per stuk</label>}
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={item.unitPrice}
+                        onChange={(e) => updateItem(index, "unitPrice", Number(e.target.value))}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2.5 md:py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-xs text-gray-500 mb-1 md:hidden">BTW %</label>
+                      {index === 0 && <label className="hidden md:block text-xs text-gray-500 mb-1">BTW %</label>}
+                      <select
+                        value={item.vatRate}
+                        onChange={(e) => updateItem(index, "vatRate", Number(e.target.value))}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2.5 md:py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                      >
+                        <option value={21}>21%</option>
+                        <option value={9}>9%</option>
+                        <option value={0}>0%</option>
+                      </select>
+                    </div>
                   </div>
-                  <div className="col-span-2">
-                    {index === 0 && <label className="block text-xs text-gray-500 mb-1">Prijs per stuk</label>}
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={item.unitPrice}
-                      onChange={(e) => updateItem(index, "unitPrice", Number(e.target.value))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    {index === 0 && <label className="block text-xs text-gray-500 mb-1">BTW %</label>}
-                    <select
-                      value={item.vatRate}
-                      onChange={(e) => updateItem(index, "vatRate", Number(e.target.value))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                    >
-                      <option value={21}>21%</option>
-                      <option value={9}>9%</option>
-                      <option value={0}>0%</option>
-                    </select>
-                  </div>
-                  <div className="col-span-1 flex justify-center">
+                  <div className="md:col-span-1 flex md:justify-center justify-end">
                     <button
                       onClick={() => removeItem(index)}
-                      className="text-red-400 hover:text-red-600 p-2"
+                      className="text-red-400 hover:text-red-600 p-2 text-sm md:text-base"
                       title="Regel verwijderen"
                     >
-                      &times;
+                      <span className="md:hidden text-xs font-medium">Verwijderen</span>
+                      <span className="hidden md:inline">&times;</span>
                     </button>
                   </div>
                 </div>
@@ -584,7 +591,7 @@ function NewInvoiceContent() {
 
           {/* Totalen */}
           <div className="border-t border-gray-200 pt-4">
-            <div className="w-64 ml-auto space-y-2">
+            <div className="w-full sm:w-64 sm:ml-auto space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-500">Subtotaal</span>
                 <span className="font-medium">{formatCurrency(subtotal)}</span>
@@ -682,7 +689,7 @@ function NewInvoiceContent() {
 
       {/* Preview Panel */}
       {showPreview && (
-        <div className="fixed top-0 right-0 w-[480px] h-full bg-white border-l border-gray-200 shadow-xl z-50 overflow-y-auto">
+        <div className="fixed inset-0 sm:inset-auto sm:top-0 sm:right-0 sm:w-[480px] sm:h-full bg-white sm:border-l border-gray-200 shadow-xl z-50 overflow-y-auto">
           <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center">
             <h2 className="text-sm font-semibold text-gray-700">Voorbeeld factuur</h2>
             <button onClick={() => setShowPreview(false)} className="text-gray-400 hover:text-gray-600">
@@ -708,7 +715,7 @@ function NewInvoiceContent() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 mb-6 pb-4 border-b border-gray-100">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6 pb-4 border-b border-gray-100">
                 <div>
                   <p className="text-gray-400 uppercase" style={{ fontSize: "10px" }}>Factuurgegevens</p>
                   <p><strong>Datum:</strong> {form.date ? formatDate(form.date) : "—"}</p>
@@ -744,7 +751,7 @@ function NewInvoiceContent() {
                 </tbody>
               </table>
 
-              <div className="w-48 ml-auto space-y-1" style={{ fontSize: "11px" }}>
+              <div className="w-full sm:w-48 sm:ml-auto space-y-1" style={{ fontSize: "11px" }}>
                 <div className="flex justify-between">
                   <span className="text-gray-500">Subtotaal</span>
                   <span>{formatCurrency(subtotal)}</span>

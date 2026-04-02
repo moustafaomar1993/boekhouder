@@ -56,6 +56,13 @@ function ClientPortalContent() {
   const [client, setClient] = useState<User | null>(null);
   const [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
 
+  // Inkoop state
+  const [purchaseDocs, setPurchaseDocs] = useState<{ id: string; fileName: string; fileUrl: string; fileType: string; fileSize: number; status: string; label: string | null; createdAt: string }[]>([]);
+  const [purchaseUploading, setPurchaseUploading] = useState(false);
+  const [purchaseMessage, setPurchaseMessage] = useState("");
+  const [purchaseDragging, setPurchaseDragging] = useState(false);
+  const [purchaseViewDoc, setPurchaseViewDoc] = useState<typeof purchaseDocs[0] | null>(null);
+
   // Verkoop tab state
   const [verkoopTab, setVerkoopTab] = useState<"factureren" | "offertes" | "herinneringen">("factureren");
   const [snelSearch, setSnelSearch] = useState("");
@@ -92,6 +99,9 @@ function ClientPortalContent() {
     });
     fetch("/api/customers").then((r) => r.ok ? r.json() : []).then((data) => {
       if (Array.isArray(data)) setCustomers(data);
+    }).catch(() => {});
+    fetch("/api/purchases").then((r) => r.ok ? r.json() : []).then((data) => {
+      if (Array.isArray(data)) setPurchaseDocs(data);
     }).catch(() => {});
   }, []);
 
@@ -239,6 +249,42 @@ function ClientPortalContent() {
 
   function resetFilters() { setSearchQuery(""); setStatusFilter("all"); setCustomerFilter("all"); setPeriodFilter("all"); }
 
+  // ── Inkoop helpers ──
+  async function handlePurchaseUpload(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setPurchaseUploading(true);
+    setPurchaseMessage("");
+    let uploaded = 0;
+    for (const file of Array.from(files)) {
+      const formData = new FormData();
+      formData.append("file", file);
+      try {
+        const res = await fetch("/api/purchases/upload", { method: "POST", body: formData });
+        if (res.ok) { const doc = await res.json(); setPurchaseDocs((prev) => [doc, ...prev]); uploaded++; }
+        else { const data = await res.json().catch(() => ({})); setPurchaseMessage(data.error || `Fout bij ${file.name}`); }
+      } catch { setPurchaseMessage(`Upload mislukt: ${file.name}`); }
+    }
+    if (uploaded > 0) setPurchaseMessage(`${uploaded} bestand${uploaded > 1 ? "en" : ""} geüpload`);
+    setPurchaseUploading(false);
+    setTimeout(() => setPurchaseMessage(""), 4000);
+  }
+
+  async function handleDeletePurchase(id: string) {
+    if (!confirm("Weet je zeker dat je dit document wilt verwijderen?")) return;
+    await fetch(`/api/purchases/${id}`, { method: "DELETE" });
+    setPurchaseDocs((prev) => prev.filter((d) => d.id !== id));
+    if (purchaseViewDoc?.id === id) setPurchaseViewDoc(null);
+  }
+
+  function formatFileSize(bytes: number) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  const purchaseStatusLabels: Record<string, string> = { uploaded: "Geüpload", processing: "In behandeling", booked: "Geboekt" };
+  const purchaseStatusColors: Record<string, string> = { uploaded: "bg-blue-100 text-blue-700", processing: "bg-amber-100 text-amber-700", booked: "bg-green-100 text-green-700" };
+
   // ── Computed dashboard values (use stable date to avoid hydration mismatch) ──
   const [today] = useState(() => new Date().toISOString().split("T")[0]);
   const [currentMonth] = useState(() => new Date().getMonth());
@@ -257,15 +303,15 @@ function ClientPortalContent() {
   const sectionTitles: Record<string, string> = { dashboard: "Dashboard", verkoop: "Verkoop", inkoop: "Inkoop", bank: "Bank", fiscaal: "BTW & Fiscaal overzicht" };
 
   return (
-    <div className="p-6 lg:p-8 max-w-7xl">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl">
       {/* Page header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-[#3C2C1E]">{sectionTitles[section] || "Dashboard"}</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-[#3C2C1E]">{sectionTitles[section] || "Dashboard"}</h1>
           {client && <p className="text-sm text-[#6F5C4B]/70 mt-0.5">{client.company}</p>}
         </div>
         {section === "verkoop" && (
-          <Link href="/client/invoices/new" className="bg-[#004854] text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-[#003640] transition-all shadow-sm">
+          <Link href="/client/invoices/new" className="bg-[#004854] text-white px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-sm font-medium hover:bg-[#003640] transition-all shadow-sm">
             + Nieuwe factuur
           </Link>
         )}
@@ -311,23 +357,21 @@ function ClientPortalContent() {
               <Link href="/client?section=inkoop" className="text-sm text-[#00AFCB] hover:text-[#004854] font-medium transition-colors">Bekijken</Link>
             </div>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
-                <p className="text-xs text-gray-500 font-medium mb-1">Kosten deze maand</p>
-                <p className="text-xl font-bold text-gray-700">-</p>
-                <p className="text-xs text-gray-400 mt-0.5">Nog geen data</p>
+              <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
+                <p className="text-xs text-blue-600 font-medium mb-1">Geüploade documenten</p>
+                <p className="text-xl font-bold text-blue-700">{purchaseDocs.length}</p>
+              </div>
+              <div className="bg-amber-50 rounded-xl p-4 border border-amber-100">
+                <p className="text-xs text-amber-600 font-medium mb-1">In behandeling</p>
+                <p className="text-xl font-bold text-amber-700">{purchaseDocs.filter((d) => d.status === "processing").length}</p>
+              </div>
+              <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-100">
+                <p className="text-xs text-emerald-600 font-medium mb-1">Geboekt</p>
+                <p className="text-xl font-bold text-emerald-700">{purchaseDocs.filter((d) => d.status === "booked").length}</p>
               </div>
               <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
-                <p className="text-xs text-gray-500 font-medium mb-1">Recente uploads</p>
-                <p className="text-xl font-bold text-gray-700">0</p>
-              </div>
-              <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
-                <p className="text-xs text-gray-500 font-medium mb-1">Openstaand bij leveranciers</p>
-                <p className="text-xl font-bold text-gray-700">-</p>
-              </div>
-              <div className="bg-orange-50 rounded-lg p-4">
-                <p className="text-xs text-orange-600 font-medium mb-1">Ontbrekende documenten</p>
-                <p className="text-xl font-bold text-orange-700">-</p>
-                <p className="text-xs text-orange-400 mt-0.5">Binnenkort beschikbaar</p>
+                <p className="text-xs text-gray-500 font-medium mb-1">Wacht op upload</p>
+                <p className="text-xl font-bold text-gray-700">{purchaseDocs.filter((d) => d.status === "uploaded").length}</p>
               </div>
             </div>
           </div>
@@ -420,7 +464,7 @@ function ClientPortalContent() {
       {section === "verkoop" && (
         <div>
           {/* Verkoop tabs */}
-          <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit mb-6">
+          <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-full sm:w-fit mb-6 overflow-x-auto">
             {([["factureren", "Factureren"], ["offertes", "Offertes"], ["herinneringen", "Herinneringen"]] as const).map(([key, label]) => (
               <button
                 key={key}
@@ -479,20 +523,22 @@ function ClientPortalContent() {
 
               {/* Search & Filters */}
               <div className="mb-4 space-y-3">
-                <div className="flex flex-wrap gap-3 items-center">
+                <div className="space-y-3 sm:space-y-0 sm:flex sm:flex-wrap sm:gap-3 sm:items-center">
                   <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Zoek op factuurnummer, klant of omschrijving..."
-                    className="flex-1 min-w-[250px] border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
-                  <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-                    <option value="all">Alle statussen</option><option value="draft">Concept</option><option value="sent">Verzonden</option><option value="paid">Betaald</option><option value="partial">Deels betaald</option><option value="overdue">Verlopen</option><option value="credit">Creditfactuur</option>
-                  </select>
-                  <select value={customerFilter} onChange={(e) => setCustomerFilter(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-                    <option value="all">Alle klanten</option>
-                    {[...new Set(invoices.map((i) => i.customerName))].sort().map((name) => (<option key={name} value={name}>{name}</option>))}
-                  </select>
-                  <select value={periodFilter} onChange={(e) => setPeriodFilter(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-                    <option value="all">Alle periodes</option><option value="this-month">Deze maand</option><option value="last-month">Vorige maand</option><option value="this-year">Dit jaar</option>
-                  </select>
-                  {hasActiveFilters && (<button onClick={resetFilters} className="text-sm text-red-500 hover:text-red-700 font-medium">Filters wissen</button>)}
+                    className="w-full sm:flex-1 sm:min-w-[250px] border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+                  <div className="grid grid-cols-2 sm:flex gap-2 sm:gap-3">
+                    <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                      <option value="all">Alle statussen</option><option value="draft">Concept</option><option value="sent">Verzonden</option><option value="paid">Betaald</option><option value="partial">Deels betaald</option><option value="overdue">Verlopen</option><option value="credit">Creditfactuur</option>
+                    </select>
+                    <select value={customerFilter} onChange={(e) => setCustomerFilter(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                      <option value="all">Alle klanten</option>
+                      {[...new Set(invoices.map((i) => i.customerName))].sort().map((name) => (<option key={name} value={name}>{name}</option>))}
+                    </select>
+                    <select value={periodFilter} onChange={(e) => setPeriodFilter(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                      <option value="all">Alle periodes</option><option value="this-month">Deze maand</option><option value="last-month">Vorige maand</option><option value="this-year">Dit jaar</option>
+                    </select>
+                    {hasActiveFilters && (<button onClick={resetFilters} className="text-sm text-red-500 hover:text-red-700 font-medium">Filters wissen</button>)}
+                  </div>
                 </div>
                 <div className="flex items-center gap-4">
                   <p className="text-sm text-gray-400">{filteredInvoices.length} factuur/facturen</p>
@@ -502,12 +548,12 @@ function ClientPortalContent() {
 
               {/* Bulk Action Bar */}
               {selectedIds.size > 0 && (
-                <div className="bg-blue-600 text-white rounded-xl px-5 py-3 mb-4 flex items-center justify-between">
+                <div className="bg-blue-600 text-white rounded-xl px-4 sm:px-5 py-3 mb-4 space-y-2 sm:space-y-0 sm:flex sm:items-center sm:justify-between">
                   <div className="flex items-center gap-3">
                     <span className="text-sm font-medium">{selectedIds.size} geselecteerd</span>
                     <button onClick={() => setSelectedIds(new Set())} className="text-xs text-blue-200 hover:text-white underline">Selectie wissen</button>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <button onClick={bulkMarkPaid} disabled={bulkLoading} className="text-xs px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg font-medium disabled:opacity-50">Markeer als betaald</button>
                     <button onClick={bulkRemind} disabled={bulkLoading} className="text-xs px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg font-medium disabled:opacity-50">Herinnering sturen</button>
                     <button onClick={bulkDownloadPdf} className="text-xs px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg font-medium">PDF downloaden</button>
@@ -516,76 +562,108 @@ function ClientPortalContent() {
                 </div>
               )}
 
-              {/* Invoice table */}
-              <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
-                <div className="p-5 border-b border-gray-100 flex justify-between items-center">
-                  <h2 className="text-lg font-semibold">Alle facturen</h2>
-                  <Link href="/client/invoices/new" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">+ Nieuwe factuur</Link>
+              {/* Invoice list */}
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100">
+                <div className="p-4 sm:p-5 border-b border-gray-100 flex justify-between items-center">
+                  <h2 className="text-base sm:text-lg font-semibold">Alle facturen</h2>
+                  <Link href="/client/invoices/new" className="bg-blue-600 text-white px-3 sm:px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">+ Nieuwe factuur</Link>
                 </div>
-                <table className="w-full">
-                  <thead>
-                    <tr className="text-left text-sm text-gray-500 border-b border-gray-100">
-                      <th className="px-3 py-3 w-10"><input type="checkbox" checked={selectedIds.size === filteredInvoices.length && filteredInvoices.length > 0} onChange={toggleSelectAll} className="rounded w-4 h-4 text-blue-600" /></th>
-                      <th className="px-5 py-3 font-medium"><button onClick={() => { if (sortField === "invoiceNumber") setSortDir(d => d === "asc" ? "desc" : "asc"); else { setSortField("invoiceNumber"); setSortDir("asc"); } }} className="flex items-center gap-1 hover:text-gray-900">Factuurnr.{sortField === "invoiceNumber" && <span className="text-blue-600">{sortDir === "asc" ? "↑" : "↓"}</span>}</button></th>
-                      <th className="px-5 py-3 font-medium">Debiteur</th>
-                      <th className="px-5 py-3 font-medium"><button onClick={() => { if (sortField === "date") setSortDir(d => d === "asc" ? "desc" : "asc"); else { setSortField("date"); setSortDir("desc"); } }} className="flex items-center gap-1 hover:text-gray-900">Factuurdatum{sortField === "date" && <span className="text-blue-600">{sortDir === "asc" ? "↑" : "↓"}</span>}</button></th>
-                      <th className="px-5 py-3 font-medium">Vervaldatum</th>
-                      <th className="px-5 py-3 font-medium">Status</th>
-                      <th className="px-5 py-3 font-medium">Boekhouding</th>
-                      <th className="px-5 py-3 font-medium text-right"><button onClick={() => { if (sortField === "total") setSortDir(d => d === "asc" ? "desc" : "asc"); else { setSortField("total"); setSortDir("desc"); } }} className="flex items-center gap-1 ml-auto hover:text-gray-900">Bedrag{sortField === "total" && <span className="text-blue-600">{sortDir === "asc" ? "↑" : "↓"}</span>}</button></th>
-                      <th className="px-5 py-3 font-medium text-right">Acties</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {[...filteredInvoices].sort((a, b) => { let cmp = 0; if (sortField === "invoiceNumber") cmp = a.invoiceNumber.localeCompare(b.invoiceNumber); else if (sortField === "date") cmp = a.date.localeCompare(b.date); else if (sortField === "total") cmp = a.total - b.total; return sortDir === "asc" ? cmp : -cmp; }).map((inv) => {
-                      const ext = inv as Invoice & { isCredit?: boolean; originalInvoiceId?: string | null };
-                      const creditStatus = getCreditStatus(ext);
-                      const isFullyCredited = creditStatus === "full";
-                      return (
-                        <tr key={inv.id} className={`hover:bg-gray-50 ${selectedIds.has(inv.id) ? "bg-blue-50" : ""}`}>
-                          <td className="px-3 py-4"><input type="checkbox" checked={selectedIds.has(inv.id)} onChange={() => toggleSelect(inv.id)} className="rounded w-4 h-4 text-blue-600" /></td>
-                          <td className="px-5 py-4">
-                            <Link href={`/client/invoices/${inv.id}/view`} className="font-medium text-blue-600 hover:text-blue-800 hover:underline">{inv.invoiceNumber}</Link>
-                            {(inv as Invoice & { _count?: { invoiceNotes: number } })._count?.invoiceNotes ? (<span className="ml-1.5 text-amber-500" title="Heeft notities"><svg className="w-3.5 h-3.5 inline" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 13V5a2 2 0 00-2-2H4a2 2 0 00-2 2v8a2 2 0 002 2h3l3 3 3-3h3a2 2 0 002-2z" clipRule="evenodd" /></svg></span>) : null}
-                            {ext.isCredit && (<span className="ml-2 px-1.5 py-0.5 bg-red-100 text-red-700 text-xs rounded font-medium">Creditfactuur</span>)}
-                            {creditStatus === "full" && (<span className="ml-2 px-1.5 py-0.5 bg-gray-100 text-gray-600 text-xs rounded font-medium">Gecrediteerd</span>)}
-                            {creditStatus === "partial" && (<span className="ml-2 px-1.5 py-0.5 bg-orange-100 text-orange-700 text-xs rounded font-medium">Deels gecrediteerd</span>)}
-                          </td>
-                          <td className="px-5 py-4 text-gray-600">{inv.customerName}</td>
-                          <td className="px-5 py-4 text-gray-600">{formatDate(inv.date)}</td>
-                          <td className="px-5 py-4 text-gray-600">{formatDate(inv.dueDate)}</td>
-                          <td className="px-5 py-4"><StatusBadge status={inv.status} /></td>
-                          <td className="px-5 py-4"><StatusBadge status={inv.bookkeepingStatus} /></td>
-                          <td className="px-5 py-4 text-right font-semibold">{formatCurrency(inv.total)}</td>
-                          <td className="px-5 py-4 text-right">
-                            <div className="relative" data-actions-menu>
-                              <button onClick={() => setOpenMenuId(openMenuId === inv.id ? null : inv.id)}
-                                className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-all ${openMenuId === inv.id ? "bg-gray-800 text-white shadow-inner" : "border border-gray-300 text-gray-600 hover:bg-gray-100"}`}>
-                                Acties<svg className={`inline-block w-3.5 h-3.5 ml-1 transition-transform ${openMenuId === inv.id ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                              </button>
-                              {openMenuId === inv.id && (
-                                <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-gray-200 rounded-xl shadow-lg z-20 py-1 text-left">
-                                  {inv.status === "draft" ? (<Link href={`/client/invoices/${inv.id}/edit`} onClick={() => setOpenMenuId(null)} className="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">Bewerken</Link>) : (<Link href={`/client/invoices/${inv.id}/view`} onClick={() => setOpenMenuId(null)} className="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">Bekijken</Link>)}
-                                  <a href={`/api/invoices/${inv.id}/pdf`} target="_blank" rel="noopener noreferrer" className="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">PDF bekijken</a>
-                                  <button onClick={async () => { setOpenMenuId(null); const res = await fetch(`/api/invoices/${inv.id}/pdf?download=1`); if (!res.ok) return; const blob = await res.blob(); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${inv.invoiceNumber}.pdf`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); }} className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">PDF downloaden</button>
-                                  <div className="border-t border-gray-100 my-1" />
-                                  {!ext.isCredit && inv.status === "draft" && (<button onClick={() => { setOpenMenuId(null); openEmailModal(inv.id, "send"); }} className="w-full text-left px-4 py-2.5 text-sm text-green-600 hover:bg-green-50">Versturen</button>)}
-                                  {!ext.isCredit && (inv.status === "sent" || inv.status === "partial" || inv.status === "overdue") && (<>
-                                    <button onClick={() => { setOpenMenuId(null); openEmailModal(inv.id, "remind"); }} className="w-full text-left px-4 py-2.5 text-sm text-orange-600 hover:bg-orange-50">Herinnering sturen</button>
-                                    <button onClick={() => { setOpenMenuId(null); openPaymentModal(inv.id); }} className="w-full text-left px-4 py-2.5 text-sm text-emerald-600 hover:bg-emerald-50">Betaling registreren</button>
-                                  </>)}
-                                  <div className="border-t border-gray-100 my-1" />
-                                  <button onClick={() => { setOpenMenuId(null); handleCopy(inv.id); }} className="w-full text-left px-4 py-2.5 text-sm text-blue-600 hover:bg-blue-50">Kopiëren</button>
-                                  {!ext.isCredit && !isFullyCredited && (<button onClick={() => { setOpenMenuId(null); handleCredit(inv.id); }} className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50">Crediteren</button>)}
-                                </div>
-                              )}
+
+                {/* Desktop table */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="text-left text-sm text-gray-500 border-b border-gray-100">
+                        <th className="px-3 py-3 w-10"><input type="checkbox" checked={selectedIds.size === filteredInvoices.length && filteredInvoices.length > 0} onChange={toggleSelectAll} className="rounded w-4 h-4 text-blue-600" /></th>
+                        <th className="px-5 py-3 font-medium"><button onClick={() => { if (sortField === "invoiceNumber") setSortDir(d => d === "asc" ? "desc" : "asc"); else { setSortField("invoiceNumber"); setSortDir("asc"); } }} className="flex items-center gap-1 hover:text-gray-900">Factuurnr.{sortField === "invoiceNumber" && <span className="text-blue-600">{sortDir === "asc" ? "↑" : "↓"}</span>}</button></th>
+                        <th className="px-5 py-3 font-medium">Debiteur</th>
+                        <th className="px-5 py-3 font-medium"><button onClick={() => { if (sortField === "date") setSortDir(d => d === "asc" ? "desc" : "asc"); else { setSortField("date"); setSortDir("desc"); } }} className="flex items-center gap-1 hover:text-gray-900">Factuurdatum{sortField === "date" && <span className="text-blue-600">{sortDir === "asc" ? "↑" : "↓"}</span>}</button></th>
+                        <th className="px-5 py-3 font-medium">Vervaldatum</th>
+                        <th className="px-5 py-3 font-medium">Status</th>
+                        <th className="px-5 py-3 font-medium">Boekhouding</th>
+                        <th className="px-5 py-3 font-medium text-right"><button onClick={() => { if (sortField === "total") setSortDir(d => d === "asc" ? "desc" : "asc"); else { setSortField("total"); setSortDir("desc"); } }} className="flex items-center gap-1 ml-auto hover:text-gray-900">Bedrag{sortField === "total" && <span className="text-blue-600">{sortDir === "asc" ? "↑" : "↓"}</span>}</button></th>
+                        <th className="px-5 py-3 font-medium text-right">Acties</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {[...filteredInvoices].sort((a, b) => { let cmp = 0; if (sortField === "invoiceNumber") cmp = a.invoiceNumber.localeCompare(b.invoiceNumber); else if (sortField === "date") cmp = a.date.localeCompare(b.date); else if (sortField === "total") cmp = a.total - b.total; return sortDir === "asc" ? cmp : -cmp; }).map((inv) => {
+                        const ext = inv as Invoice & { isCredit?: boolean; originalInvoiceId?: string | null };
+                        const creditStatus = getCreditStatus(ext);
+                        const isFullyCredited = creditStatus === "full";
+                        return (
+                          <tr key={inv.id} className={`hover:bg-gray-50 ${selectedIds.has(inv.id) ? "bg-blue-50" : ""}`}>
+                            <td className="px-3 py-4"><input type="checkbox" checked={selectedIds.has(inv.id)} onChange={() => toggleSelect(inv.id)} className="rounded w-4 h-4 text-blue-600" /></td>
+                            <td className="px-5 py-4">
+                              <Link href={`/client/invoices/${inv.id}/view`} className="font-medium text-blue-600 hover:text-blue-800 hover:underline">{inv.invoiceNumber}</Link>
+                              {(inv as Invoice & { _count?: { invoiceNotes: number } })._count?.invoiceNotes ? (<span className="ml-1.5 text-amber-500" title="Heeft notities"><svg className="w-3.5 h-3.5 inline" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 13V5a2 2 0 00-2-2H4a2 2 0 00-2 2v8a2 2 0 002 2h3l3 3 3-3h3a2 2 0 002-2z" clipRule="evenodd" /></svg></span>) : null}
+                              {ext.isCredit && (<span className="ml-2 px-1.5 py-0.5 bg-red-100 text-red-700 text-xs rounded font-medium">Creditfactuur</span>)}
+                              {creditStatus === "full" && (<span className="ml-2 px-1.5 py-0.5 bg-gray-100 text-gray-600 text-xs rounded font-medium">Gecrediteerd</span>)}
+                              {creditStatus === "partial" && (<span className="ml-2 px-1.5 py-0.5 bg-orange-100 text-orange-700 text-xs rounded font-medium">Deels gecrediteerd</span>)}
+                            </td>
+                            <td className="px-5 py-4 text-gray-600">{inv.customerName}</td>
+                            <td className="px-5 py-4 text-gray-600">{formatDate(inv.date)}</td>
+                            <td className="px-5 py-4 text-gray-600">{formatDate(inv.dueDate)}</td>
+                            <td className="px-5 py-4"><StatusBadge status={inv.status} /></td>
+                            <td className="px-5 py-4"><StatusBadge status={inv.bookkeepingStatus} /></td>
+                            <td className="px-5 py-4 text-right font-semibold">{formatCurrency(inv.total)}</td>
+                            <td className="px-5 py-4 text-right">
+                              <div className="relative" data-actions-menu>
+                                <button onClick={() => setOpenMenuId(openMenuId === inv.id ? null : inv.id)}
+                                  className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-all ${openMenuId === inv.id ? "bg-gray-800 text-white shadow-inner" : "border border-gray-300 text-gray-600 hover:bg-gray-100"}`}>
+                                  Acties<svg className={`inline-block w-3.5 h-3.5 ml-1 transition-transform ${openMenuId === inv.id ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                                </button>
+                                {openMenuId === inv.id && (
+                                  <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-gray-200 rounded-xl shadow-lg z-20 py-1 text-left">
+                                    {inv.status === "draft" ? (<Link href={`/client/invoices/${inv.id}/edit`} onClick={() => setOpenMenuId(null)} className="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">Bewerken</Link>) : (<Link href={`/client/invoices/${inv.id}/view`} onClick={() => setOpenMenuId(null)} className="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">Bekijken</Link>)}
+                                    <a href={`/api/invoices/${inv.id}/pdf`} target="_blank" rel="noopener noreferrer" className="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">PDF bekijken</a>
+                                    <button onClick={async () => { setOpenMenuId(null); const res = await fetch(`/api/invoices/${inv.id}/pdf?download=1`); if (!res.ok) return; const blob = await res.blob(); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${inv.invoiceNumber}.pdf`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); }} className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">PDF downloaden</button>
+                                    <div className="border-t border-gray-100 my-1" />
+                                    {!ext.isCredit && inv.status === "draft" && (<button onClick={() => { setOpenMenuId(null); openEmailModal(inv.id, "send"); }} className="w-full text-left px-4 py-2.5 text-sm text-green-600 hover:bg-green-50">Versturen</button>)}
+                                    {!ext.isCredit && (inv.status === "sent" || inv.status === "partial" || inv.status === "overdue") && (<>
+                                      <button onClick={() => { setOpenMenuId(null); openEmailModal(inv.id, "remind"); }} className="w-full text-left px-4 py-2.5 text-sm text-orange-600 hover:bg-orange-50">Herinnering sturen</button>
+                                      <button onClick={() => { setOpenMenuId(null); openPaymentModal(inv.id); }} className="w-full text-left px-4 py-2.5 text-sm text-emerald-600 hover:bg-emerald-50">Betaling registreren</button>
+                                    </>)}
+                                    <div className="border-t border-gray-100 my-1" />
+                                    <button onClick={() => { setOpenMenuId(null); handleCopy(inv.id); }} className="w-full text-left px-4 py-2.5 text-sm text-blue-600 hover:bg-blue-50">Kopiëren</button>
+                                    {!ext.isCredit && !isFullyCredited && (<button onClick={() => { setOpenMenuId(null); handleCredit(inv.id); }} className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50">Crediteren</button>)}
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile card list */}
+                <div className="md:hidden divide-y divide-gray-100">
+                  {[...filteredInvoices].sort((a, b) => { let cmp = 0; if (sortField === "invoiceNumber") cmp = a.invoiceNumber.localeCompare(b.invoiceNumber); else if (sortField === "date") cmp = a.date.localeCompare(b.date); else if (sortField === "total") cmp = a.total - b.total; return sortDir === "asc" ? cmp : -cmp; }).map((inv) => {
+                    const ext = inv as Invoice & { isCredit?: boolean; originalInvoiceId?: string | null };
+                    return (
+                      <Link key={inv.id} href={`/client/invoices/${inv.id}/view`} className="block px-4 py-4 hover:bg-gray-50 active:bg-gray-100 transition-colors">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <p className="font-medium text-blue-600 text-sm">{inv.invoiceNumber}</p>
+                              {ext.isCredit && <span className="px-1.5 py-0.5 bg-red-100 text-red-700 text-[10px] rounded font-medium">Credit</span>}
                             </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                            <p className="text-sm text-gray-900 truncate">{inv.customerName}</p>
+                            <p className="text-xs text-gray-500 mt-1">{formatDate(inv.date)}</p>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <p className="font-semibold text-sm">{formatCurrency(inv.total)}</p>
+                            <div className="mt-1"><StatusBadge status={inv.status} /></div>
+                          </div>
+                        </div>
+                      </Link>
+                    );
+                  })}
+                  {filteredInvoices.length === 0 && (
+                    <div className="px-4 py-12 text-center text-gray-400 text-sm">Geen facturen gevonden.</div>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -611,14 +689,16 @@ function ClientPortalContent() {
               ) : (
                 <div className="space-y-3">
                   {overdueReminders.map((inv) => (
-                    <div key={inv.id} className="flex items-center justify-between p-4 bg-red-50 rounded-lg border border-red-100">
-                      <div>
-                        <p className="text-sm font-medium text-gray-900">{inv.customerName}</p>
-                        <p className="text-xs text-gray-500">{inv.invoiceNumber} &middot; Vervaldatum: {formatDate(inv.dueDate)}</p>
+                    <div key={inv.id} className="p-4 bg-red-50 rounded-lg border border-red-100">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-900">{inv.customerName}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">{inv.invoiceNumber} &middot; Vervaldatum: {formatDate(inv.dueDate)}</p>
+                        </div>
+                        <span className="text-sm font-semibold flex-shrink-0">{formatCurrency(inv.total)}</span>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-semibold">{formatCurrency(inv.total)}</span>
-                        <button onClick={() => openEmailModal(inv.id, "remind")} className="text-xs px-3 py-1.5 bg-orange-500 text-white rounded-lg font-medium hover:bg-orange-600">Herinnering sturen</button>
+                      <div className="mt-3 sm:mt-2 sm:flex sm:justify-end">
+                        <button onClick={() => openEmailModal(inv.id, "remind")} className="w-full sm:w-auto text-xs px-3 py-2 bg-orange-500 text-white rounded-lg font-medium hover:bg-orange-600">Herinnering sturen</button>
                       </div>
                     </div>
                   ))}
@@ -634,31 +714,142 @@ function ClientPortalContent() {
       {/* ═══════════════════════════════════════════ */}
       {section === "inkoop" && (
         <div className="space-y-6">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <h2 className="text-lg font-semibold mb-2">Inkoopfacturen</h2>
-            <p className="text-sm text-gray-500 mb-6">Beheer je inkoopfacturen en kosten.</p>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="border border-dashed border-gray-300 rounded-xl p-6 text-center">
-                <div className="text-gray-400 mb-2"><svg className="w-8 h-8 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg></div>
-                <p className="text-sm font-medium text-gray-700">Upload factuur</p>
-                <p className="text-xs text-gray-400 mt-1">Sleep een bestand of klik om te uploaden</p>
+          {/* Upload area */}
+          <div
+            className={`bg-white rounded-xl shadow-sm border-2 border-dashed border-gray-200 transition-colors p-6 sm:p-8 ${purchaseDragging ? "!border-[#00AFCB] !bg-[#E6F9FC]/30" : ""}`}
+            onDragOver={(e) => { e.preventDefault(); setPurchaseDragging(true); }}
+            onDragLeave={() => setPurchaseDragging(false)}
+            onDrop={(e) => { e.preventDefault(); setPurchaseDragging(false); handlePurchaseUpload(e.dataTransfer.files); }}
+          >
+            <div className="text-center">
+              <div className="w-14 h-14 bg-[#E6F9FC] rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <svg className="w-7 h-7 text-[#00AFCB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
               </div>
-              <div className="bg-gray-50 rounded-xl p-6">
-                <p className="text-xs text-gray-500 font-medium mb-1">Totale kosten deze maand</p>
-                <p className="text-2xl font-bold text-gray-700">-</p>
-                <p className="text-xs text-gray-400 mt-1">Nog geen inkoopfacturen</p>
-              </div>
-              <div className="bg-gray-50 rounded-xl p-6">
-                <p className="text-xs text-gray-500 font-medium mb-1">Openstaand bij leveranciers</p>
-                <p className="text-2xl font-bold text-gray-700">-</p>
-                <p className="text-xs text-gray-400 mt-1">Nog geen data</p>
-              </div>
+              <h3 className="text-base font-semibold text-[#3C2C1E] mb-1">Upload bon of factuur</h3>
+              <p className="text-sm text-gray-500 mb-4">Sleep bestanden hierheen of klik om te selecteren</p>
+              <label className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#004854] text-white rounded-xl text-sm font-medium hover:bg-[#003640] cursor-pointer transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                {purchaseUploading ? "Uploaden..." : "Bestand kiezen"}
+                <input type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png" multiple disabled={purchaseUploading}
+                  onChange={(e) => handlePurchaseUpload(e.target.files)} />
+              </label>
+              <p className="text-xs text-gray-400 mt-3">PDF, JPG of PNG &middot; max. 10MB per bestand</p>
             </div>
           </div>
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <h2 className="text-lg font-semibold mb-2">Recente inkoopfacturen</h2>
-            <p className="text-sm text-gray-400">Nog geen inkoopfacturen geüpload. Upload je eerste factuur om te beginnen.</p>
+
+          {purchaseMessage && (
+            <div className={`rounded-xl px-4 py-3 text-sm ${purchaseMessage.includes("geüpload") ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-700 border border-red-200"}`}>
+              {purchaseMessage}
+            </div>
+          )}
+
+          {/* Stats */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+              <p className="text-xs text-gray-500 font-medium mb-1">Totaal documenten</p>
+              <p className="text-2xl font-bold text-[#004854]">{purchaseDocs.length}</p>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+              <p className="text-xs text-gray-500 font-medium mb-1">Geüpload</p>
+              <p className="text-2xl font-bold text-blue-600">{purchaseDocs.filter((d) => d.status === "uploaded").length}</p>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 col-span-2 sm:col-span-1">
+              <p className="text-xs text-gray-500 font-medium mb-1">Geboekt</p>
+              <p className="text-2xl font-bold text-emerald-600">{purchaseDocs.filter((d) => d.status === "booked").length}</p>
+            </div>
           </div>
+
+          {/* Document list */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100">
+            <div className="p-4 sm:p-5 border-b border-gray-100">
+              <h2 className="text-base sm:text-lg font-semibold">Geüploade documenten</h2>
+            </div>
+
+            {purchaseDocs.length === 0 ? (
+              <div className="p-8 sm:p-12 text-center">
+                <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center mx-auto mb-3">
+                  <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                </div>
+                <p className="text-sm text-gray-500">Nog geen documenten geüpload.</p>
+                <p className="text-xs text-gray-400 mt-1">Upload je eerste bon of factuur om te beginnen.</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-50">
+                {purchaseDocs.map((doc) => (
+                  <div key={doc.id} className="px-4 sm:px-5 py-4 hover:bg-gray-50 transition-colors">
+                    <div className="flex items-center gap-3 sm:gap-4">
+                      {/* File icon */}
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${doc.fileType === "pdf" ? "bg-red-50" : "bg-blue-50"}`}>
+                        {doc.fileType === "pdf" ? (
+                          <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                        ) : (
+                          <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                        )}
+                      </div>
+                      {/* Info */}
+                      <button onClick={() => setPurchaseViewDoc(doc)} className="flex-1 min-w-0 text-left">
+                        <p className="text-sm font-medium text-gray-900 truncate">{doc.label || doc.fileName}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {formatDate(doc.createdAt.split("T")[0])} &middot; {formatFileSize(doc.fileSize)} &middot; {doc.fileType.toUpperCase()}
+                        </p>
+                      </button>
+                      {/* Status + actions */}
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${purchaseStatusColors[doc.status] || "bg-gray-100"}`}>
+                          {purchaseStatusLabels[doc.status] || doc.status}
+                        </span>
+                        <button onClick={() => handleDeletePurchase(doc.id)} className="text-gray-400 hover:text-red-500 p-1" title="Verwijderen">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Document detail modal */}
+          {purchaseViewDoc && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setPurchaseViewDoc(null)}>
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+                <div className="p-4 sm:p-6 border-b border-gray-100 flex justify-between items-center">
+                  <div className="min-w-0">
+                    <h2 className="text-lg font-semibold truncate">{purchaseViewDoc.label || purchaseViewDoc.fileName}</h2>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {formatDate(purchaseViewDoc.createdAt.split("T")[0])} &middot; {formatFileSize(purchaseViewDoc.fileSize)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${purchaseStatusColors[purchaseViewDoc.status] || "bg-gray-100"}`}>
+                      {purchaseStatusLabels[purchaseViewDoc.status] || purchaseViewDoc.status}
+                    </span>
+                    <button onClick={() => setPurchaseViewDoc(null)} className="text-gray-400 hover:text-gray-600 p-1">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+                </div>
+                <div className="flex-1 overflow-auto p-4 sm:p-6">
+                  {purchaseViewDoc.fileType === "pdf" ? (
+                    <iframe src={purchaseViewDoc.fileUrl} className="w-full h-[60vh] rounded-lg border border-gray-200" />
+                  ) : (
+                    <img src={purchaseViewDoc.fileUrl} alt={purchaseViewDoc.fileName} className="max-w-full rounded-lg border border-gray-200 mx-auto" />
+                  )}
+                </div>
+                <div className="p-4 sm:p-6 border-t border-gray-100 flex flex-col sm:flex-row gap-2 sm:justify-between">
+                  <a href={purchaseViewDoc.fileUrl} target="_blank" rel="noopener noreferrer"
+                    className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 text-center">
+                    Openen in nieuw tabblad
+                  </a>
+                  <button onClick={() => { handleDeletePurchase(purchaseViewDoc.id); }} className="px-4 py-2 border border-red-200 text-red-600 rounded-lg text-sm font-medium hover:bg-red-50">
+                    Verwijderen
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -76,7 +76,7 @@ export default function AdminDashboard() {
   const router = useRouter();
   const [stats, setStats] = useState<Stats | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);
-  const [activeTab, setActiveTab] = useState<"overview" | "users">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "users" | "settings">("overview");
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("all");
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
@@ -96,6 +96,17 @@ export default function AdminDashboard() {
   const [createError, setCreateError] = useState("");
   const [createLoading, setCreateLoading] = useState(false);
 
+  // Settings state
+  const [kvkApiKey, setKvkApiKey] = useState("");
+  const [kvkContractNr, setKvkContractNr] = useState("");
+  const [kvkBaseUrl, setKvkBaseUrl] = useState("https://api.kvk.nl/api");
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsMessage, setSettingsMessage] = useState("");
+  const [kvkConnTesting, setKvkConnTesting] = useState(false);
+  const [kvkConnStatus, setKvkConnStatus] = useState<{ connected: boolean; message?: string; error?: string } | null>(null);
+  const [showApiKey, setShowApiKey] = useState(false);
+
   useEffect(() => {
     Promise.all([
       fetch("/api/admin/stats").then((r) => {
@@ -113,7 +124,52 @@ export default function AdminDashboard() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+
+    // Load settings
+    fetch("/api/admin/settings").then((r) => r.ok ? r.json() : {}).then((data) => {
+      if (data.kvk_api_key) setKvkApiKey(data.kvk_api_key.value || "");
+      if (data.kvk_contract_nr) setKvkContractNr(data.kvk_contract_nr.value || "");
+      if (data.kvk_api_base_url) setKvkBaseUrl(data.kvk_api_base_url.value || "https://api.kvk.nl/api");
+    }).catch(() => {});
   }, [router]);
+
+  async function saveKvkSettings() {
+    setSettingsSaving(true);
+    setSettingsMessage("");
+    try {
+      const res = await fetch("/api/admin/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          settings: {
+            kvk_api_key: kvkApiKey,
+            kvk_contract_nr: kvkContractNr,
+            kvk_api_base_url: kvkBaseUrl,
+          },
+        }),
+      });
+      if (res.ok) {
+        setSettingsMessage("KVK-instellingen opgeslagen");
+        setKvkConnStatus(null);
+        setTimeout(() => setSettingsMessage(""), 4000);
+      } else {
+        setSettingsMessage("Opslaan mislukt");
+      }
+    } catch { setSettingsMessage("Er ging iets mis"); }
+    finally { setSettingsSaving(false); }
+  }
+
+  async function testKvkConnection() {
+    setKvkConnTesting(true);
+    setKvkConnStatus(null);
+    try {
+      const res = await fetch("/api/kvk/test-connection");
+      const data = await res.json();
+      setKvkConnStatus(data);
+    } catch {
+      setKvkConnStatus({ connected: false, error: "Kan geen verbinding maken" });
+    } finally { setKvkConnTesting(false); }
+  }
 
   const filteredUsers = users.filter((u) => {
     if (roleFilter !== "all" && u.role !== roleFilter) return false;
@@ -261,7 +317,7 @@ export default function AdminDashboard() {
       {/* Tabs */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
         <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
-          {(["overview", "users"] as const).map((tab) => (
+          {(["overview", "users", "settings"] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -269,7 +325,7 @@ export default function AdminDashboard() {
                 activeTab === tab ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
               }`}
             >
-              {tab === "overview" ? "Overzicht" : "Gebruikers"}
+              {tab === "overview" ? "Overzicht" : tab === "users" ? "Gebruikers" : "Instellingen"}
             </button>
           ))}
         </div>
@@ -644,6 +700,103 @@ export default function AdminDashboard() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+        {/* SETTINGS TAB */}
+        {activeTab === "settings" && (
+          <div className="max-w-2xl space-y-6">
+            {/* KVK API Settings */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+              <div className="flex items-center gap-3 mb-1">
+                <svg className="w-6 h-6 text-[#00AFCB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+                <h2 className="text-lg font-semibold">KVK API-verbinding</h2>
+              </div>
+              <p className="text-sm text-gray-500 mb-6">
+                Configureer de verbinding met het KVK Handelsregister. Deze wordt gebruikt voor het opzoeken en importeren van bedrijfsgegevens bij klantbeheer.
+              </p>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Contractnummer</label>
+                  <input type="text" value={kvkContractNr} onChange={(e) => setKvkContractNr(e.target.value)}
+                    placeholder="Uw KVK contractnummer"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 focus:border-[#00AFCB] outline-none" />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">API-sleutel</label>
+                  <div className="relative">
+                    <input
+                      type={showApiKey ? "text" : "password"}
+                      value={kvkApiKey}
+                      onChange={(e) => setKvkApiKey(e.target.value)}
+                      placeholder="Voer uw KVK API-sleutel in"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 focus:border-[#00AFCB] outline-none pr-20 font-mono"
+                    />
+                    <button type="button" onClick={() => setShowApiKey(!showApiKey)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 hover:text-gray-700 px-2 py-1">
+                      {showApiKey ? "Verbergen" : "Tonen"}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1">De API-sleutel wordt veilig opgeslagen in de database en is niet zichtbaar in de frontend.</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">API Base URL</label>
+                  <select value={kvkBaseUrl} onChange={(e) => setKvkBaseUrl(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 focus:border-[#00AFCB] outline-none">
+                    <option value="https://api.kvk.nl/api">Productie (api.kvk.nl/api)</option>
+                    <option value="https://api.kvk.nl/test/api">Test (api.kvk.nl/test/api)</option>
+                  </select>
+                </div>
+
+                {settingsMessage && (
+                  <div className={`rounded-lg px-4 py-3 text-sm ${settingsMessage.includes("opgeslagen") ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+                    {settingsMessage}
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                  <button onClick={saveKvkSettings} disabled={settingsSaving || !kvkApiKey}
+                    className="px-5 py-2.5 bg-[#004854] text-white rounded-lg text-sm font-medium hover:bg-[#003640] disabled:opacity-50 transition-colors">
+                    {settingsSaving ? "Opslaan..." : "Instellingen opslaan"}
+                  </button>
+                  <button onClick={testKvkConnection} disabled={kvkConnTesting || !kvkApiKey}
+                    className="px-5 py-2.5 border border-[#00AFCB]/30 text-[#004854] rounded-lg text-sm font-medium hover:bg-[#E6F9FC] disabled:opacity-50 transition-colors">
+                    {kvkConnTesting ? (
+                      <span className="flex items-center gap-2">
+                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                        Testen...
+                      </span>
+                    ) : "Verbinding testen"}
+                  </button>
+                </div>
+
+                {kvkConnStatus && (
+                  <div className={`flex items-center gap-2 p-4 rounded-lg text-sm ${kvkConnStatus.connected ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+                    {kvkConnStatus.connected ? (
+                      <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    ) : (
+                      <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    )}
+                    <span>{kvkConnStatus.message || kvkConnStatus.error}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Info card */}
+            <div className="bg-gray-50 rounded-xl border border-gray-200 p-5">
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Over de KVK API</h3>
+              <ul className="text-sm text-gray-500 space-y-1.5">
+                <li>• De API-sleutel en contractnummer kunt u aanvragen via <span className="font-medium text-gray-700">developers.kvk.nl</span></li>
+                <li>• Na het opslaan is de KVK-integratie direct beschikbaar bij het aanmaken en bewerken van klanten</li>
+                <li>• Gebruik de <span className="font-medium text-gray-700">Test</span>-omgeving om de verbinding te testen voordat u overschakelt naar productie</li>
+                <li>• De API-sleutel wordt veilig opgeslagen en nooit in de browser getoond</li>
+              </ul>
+            </div>
           </div>
         )}
       </main>
