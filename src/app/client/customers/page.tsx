@@ -50,7 +50,7 @@ export default function CustomersPage() {
   const [kvkImporting, setKvkImporting] = useState<string | null>(null);
   const [kvkMessage, setKvkMessage] = useState("");
   const [kvkSyncing, setKvkSyncing] = useState<string | null>(null);
-  const searchTimeout = useRef<ReturnType<typeof setTimeout>>();
+  const searchTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => { fetchCustomers(); }, []);
 
