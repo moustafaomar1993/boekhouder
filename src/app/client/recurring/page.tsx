@@ -172,6 +172,7 @@ export default function RecurringPage() {
             </button>
           </div>
         ) : items.length > 0 && (
+          <>
           {/* Desktop table */}
           <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             <table className="w-full">
@@ -251,6 +252,7 @@ export default function RecurringPage() {
               </div>
             ))}
           </div>
+          </>
         )}
       </main>
     </div>
