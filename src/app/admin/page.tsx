@@ -126,7 +126,7 @@ export default function AdminDashboard() {
       .finally(() => setLoading(false));
 
     // Load settings
-    fetch("/api/admin/settings").then((r) => r.ok ? r.json() : {}).then((data) => {
+    fetch("/api/admin/settings").then((r) => r.ok ? r.json() : {}).then((data: Record<string, { value: string }>) => {
       if (data.kvk_api_key) setKvkApiKey(data.kvk_api_key.value || "");
       if (data.kvk_contract_nr) setKvkContractNr(data.kvk_contract_nr.value || "");
       if (data.kvk_api_base_url) setKvkBaseUrl(data.kvk_api_base_url.value || "https://api.kvk.nl/api");
