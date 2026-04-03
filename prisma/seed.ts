@@ -63,12 +63,15 @@ async function main() {
     },
   });
 
+  const bookHash = await bcrypt.hash("BoekPass1", 12);
   await prisma.user.create({
     data: {
       id: "bookkeeper-1",
       name: "Pieter van den Berg",
       email: "pieter@boekhouder.nl",
       role: "bookkeeper",
+      username: "pieter@boekhouder.nl",
+      passwordHash: bookHash,
       emailVerified: true,
       isNew: false,
     },
@@ -214,6 +217,7 @@ async function main() {
 
   console.log("Seed data created successfully!");
   console.log("Demo login: demo@boekhouder.nl / DemoPass1");
+  console.log("Boekhouder login: pieter@boekhouder.nl / BoekPass1");
   console.log("Admin login: moustafa@digitalmountains.nl / AdminPass1");
 }
 

@@ -47,6 +47,12 @@ model User {
   recurringInvoices  RecurringInvoice[]
   quotations         Quotation[]
   purchaseDocuments  PurchaseDocument[]
+  bankTransactions   BankTransaction[]
+  tasks              Task[]
+  conversations      Conversation[]
+  messages           Message[]
+  exceptionsReceived ExceptionItem[]   @relation("ExceptionForUser")
+  exceptionsCreated  ExceptionItem[]   @relation("ExceptionCreatedBy")
 }
 
 model Administration {
@@ -72,6 +78,9 @@ model Customer {
   defaultDescription String?
   defaultUnitPrice   Float?
   defaultVatRate     Float?
+  // Bookkeeping defaults (for future automation)
+  defaultVatCode       String?  // high, low, zero, exempt, reversed
+  defaultRevenueAccount String?  // e.g. "8000" for omzet
   // KVK data
   kvkNumber        String?
   legalForm        String?
@@ -104,9 +113,11 @@ model Invoice {
   total             Float
   paidAmount        Float    @default(0)
   status            String   @default("draft")
-  bookkeepingStatus String   @default("pending")
+  bookkeepingStatus String   @default("pending") // pending, to_book, booked
   notes             String?
   category          String?
+  vatType           String?  // high, low, zero, exempt, reversed
+  bookedAt          DateTime?
   isCredit          Boolean  @default(false)
   originalInvoiceId  String?
   sourceQuotationId  String?
@@ -258,17 +269,115 @@ model PurchaseDocument {
   fileSize       Int      // bytes
   status         String   @default("uploaded") // uploaded, processing, booked
   label          String?  // user-friendly label
-  // Future AI fields (not used yet)
+  // Bookkeeping fields
   supplierName   String?
-  amount         Float?
+  invoiceNumber  String?  // supplier invoice number
+  amount         Float?   // excl. BTW
   vatAmount      Float?
+  totalAmount    Float?   // incl. BTW
   documentDate   String?
   category       String?
+  description    String?
+  vatType        String?  // high, low, zero, exempt, reversed
   notes          String?
+  bookedAt       DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id])
+}
+
+model Conversation {
+  id          String   @id @default(uuid())
+  userId      String   // the customer
+  subject     String
+  lastMessage String?
+  lastAt      DateTime @default(now())
+  unreadByUser Boolean @default(false)
+  unreadByAccountant Boolean @default(false)
+  contextType String?  // invoice, purchase, exception, general
+  contextId   String?
+  createdAt   DateTime @default(now())
+
+  user     User      @relation(fields: [userId], references: [id])
+  messages Message[]
+}
+
+model Message {
+  id             String   @id @default(uuid())
+  conversationId String
+  senderUserId   String
+  senderRole     String   // "client" or "bookkeeper"
+  text           String
+  createdAt      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation(fields: [senderUserId], references: [id])
+}
+
+model Task {
+  id          String   @id @default(uuid())
+  userId      String
+  title       String
+  description String?
+  date        String   // YYYY-MM-DD (the day this task is for)
+  time        String?  // HH:MM (optional time)
+  completed   Boolean  @default(false)
+  completedAt DateTime?
+  category    String?  // e.g. "boekhouding", "factuur", "algemeen"
+  sourceType  String?  // "exception", "system", "manual"
+  sourceId    String?  // link to exception/invoice/etc
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model ExceptionItem {
+  id              String   @id @default(uuid())
+  userId          String   // the customer this is for
+  createdByUserId String   // the accountant who created it
+  type            String   // missing_document, missing_payment
+  title           String
+  description     String
+  status          String   @default("waiting") // waiting, responded, resolved
+  // Source links (at least one should be set)
+  invoiceId       String?
+  purchaseDocId   String?
+  bankTransactionId String?
+  // Customer response
+  customerResponse String?  // selected option
+  customerNotes    String?
+  customerFileUrl  String?  // uploaded file
+  customerFileName String?
+  respondedAt      DateTime?
+  resolvedAt       DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user        User     @relation("ExceptionForUser", fields: [userId], references: [id])
+  createdBy   User     @relation("ExceptionCreatedBy", fields: [createdByUserId], references: [id])
+}
+
+model BankTransaction {
+  id              String   @id @default(uuid())
+  userId          String   // linked client/administration
+  bankAccount     String?  // IBAN of the account
+  transactionDate String   // YYYY-MM-DD
+  amount          Float
+  direction       String   // "debit" or "credit"
+  description     String
+  counterparty    String?  // tegenrekening / name
+  counterpartyAccount String? // tegenrekening IBAN
+  status          String   @default("new") // new, processing, matched, reconciled
+  importBatchId   String   // groups transactions from same import
+  importHash      String   // unique hash for duplicate detection
+  rawData         String?  // original MT940 line for reference
+  createdAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, importHash])
 }
 
 model SystemSetting {

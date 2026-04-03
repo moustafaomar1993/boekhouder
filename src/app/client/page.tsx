@@ -63,6 +63,32 @@ function ClientPortalContent() {
   const [purchaseDragging, setPurchaseDragging] = useState(false);
   const [purchaseViewDoc, setPurchaseViewDoc] = useState<typeof purchaseDocs[0] | null>(null);
 
+  // Berichten state
+  interface ConvoItem { id: string; subject: string; lastMessage: string | null; lastAt: string; unreadByUser: boolean; createdAt: string }
+  interface MsgItem { id: string; senderRole: string; text: string; createdAt: string; sender: { id: string; name: string; role: string } }
+  const [conversations, setConversations] = useState<ConvoItem[]>([]);
+  const [activeConvo, setActiveConvo] = useState<(ConvoItem & { messages: MsgItem[] }) | null>(null);
+  const [msgInput, setMsgInput] = useState("");
+  const [msgSending, setMsgSending] = useState(false);
+  const [showNewConvo, setShowNewConvo] = useState(false);
+  const [newConvoForm, setNewConvoForm] = useState({ subject: "", message: "" });
+  const [convoCreating, setConvoCreating] = useState(false);
+
+  // Planning state
+  interface TaskItem { id: string; title: string; description: string | null; date: string; time: string | null; completed: boolean; completedAt: string | null; category: string | null; sourceType: string | null }
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date());
+  const [showAddTask, setShowAddTask] = useState(false);
+  const [newTask, setNewTask] = useState({ title: "", description: "", time: "" });
+  const [taskSaving, setTaskSaving] = useState(false);
+
+  // Exception tasks state
+  const [exceptionTasks, setExceptionTasks] = useState<{ id: string; type: string; title: string; description: string; status: string; createdAt: string; customerResponse: string | null }[]>([]);
+  const [respondingTo, setRespondingTo] = useState<string | null>(null);
+  const [responseForm, setResponseForm] = useState({ response: "", notes: "" });
+  const [responseSending, setResponseSending] = useState(false);
+
   // Verkoop tab state
   const [verkoopTab, setVerkoopTab] = useState<"factureren" | "offertes" | "herinneringen">("factureren");
   const [snelSearch, setSnelSearch] = useState("");
@@ -103,7 +129,20 @@ function ClientPortalContent() {
     fetch("/api/purchases").then((r) => r.ok ? r.json() : []).then((data) => {
       if (Array.isArray(data)) setPurchaseDocs(data);
     }).catch(() => {});
+    fetch("/api/exceptions").then((r) => r.ok ? r.json() : []).then((data) => {
+      if (Array.isArray(data)) setExceptionTasks(data);
+    }).catch(() => {});
+    fetch("/api/conversations").then((r) => r.ok ? r.json() : []).then((data) => {
+      if (Array.isArray(data)) setConversations(data);
+    }).catch(() => {});
   }, []);
+
+  // Fetch tasks when selectedDate changes
+  useEffect(() => {
+    fetch(`/api/tasks?date=${selectedDate}&includeOverdue=true`).then((r) => r.ok ? r.json() : []).then((data) => {
+      if (Array.isArray(data)) setTasks(data);
+    }).catch(() => {});
+  }, [selectedDate]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -282,6 +321,146 @@ function ClientPortalContent() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
+  // Berichten helpers
+  async function openConversation(id: string) {
+    const res = await fetch(`/api/conversations/${id}`);
+    if (res.ok) {
+      const data = await res.json();
+      setActiveConvo(data);
+      setConversations((prev) => prev.map((c) => c.id === id ? { ...c, unreadByUser: false } : c));
+    }
+  }
+
+  async function sendMessage() {
+    if (!msgInput.trim() || !activeConvo) return;
+    setMsgSending(true);
+    try {
+      const res = await fetch(`/api/conversations/${activeConvo.id}/messages`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: msgInput }),
+      });
+      if (res.ok) {
+        const msg = await res.json();
+        setActiveConvo((prev) => prev ? { ...prev, messages: [...prev.messages, msg], lastMessage: msg.text.substring(0, 100) } : null);
+        setConversations((prev) => prev.map((c) => c.id === activeConvo.id ? { ...c, lastMessage: msg.text.substring(0, 100), lastAt: new Date().toISOString() } : c));
+        setMsgInput("");
+      }
+    } catch { /* */ }
+    finally { setMsgSending(false); }
+  }
+
+  async function createConversation() {
+    if (!newConvoForm.subject.trim() || !newConvoForm.message.trim()) return;
+    setConvoCreating(true);
+    try {
+      const res = await fetch("/api/conversations", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newConvoForm),
+      });
+      if (res.ok) {
+        const convo = await res.json();
+        setConversations((prev) => [convo, ...prev]);
+        setShowNewConvo(false);
+        setNewConvoForm({ subject: "", message: "" });
+        openConversation(convo.id);
+      }
+    } catch { /* */ }
+    finally { setConvoCreating(false); }
+  }
+
+  function formatTimeAgo(dateStr: string) {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "Zojuist";
+    if (mins < 60) return `${mins} min`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours} uur`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days} dag${days > 1 ? "en" : ""}`;
+    return new Date(dateStr).toLocaleDateString("nl-NL", { day: "numeric", month: "short" });
+  }
+
+  // Task helpers
+  async function addTask() {
+    if (!newTask.title.trim()) return;
+    setTaskSaving(true);
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: newTask.title, description: newTask.description, date: selectedDate, time: newTask.time || null }),
+      });
+      if (res.ok) {
+        const task = await res.json();
+        setTasks((prev) => [...prev, task].sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99")));
+        setNewTask({ title: "", description: "", time: "" });
+        setShowAddTask(false);
+      }
+    } catch { /* */ }
+    finally { setTaskSaving(false); }
+  }
+
+  async function toggleTask(id: string, completed: boolean) {
+    const res = await fetch(`/api/tasks/${id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ completed }),
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      setTasks((prev) => prev.map((t) => t.id === id ? updated : t));
+    }
+  }
+
+  async function deleteTask(id: string) {
+    await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+    setTasks((prev) => prev.filter((t) => t.id !== id));
+  }
+
+  const timedTasks = tasks.filter((t) => t.time && !t.completed).sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+  const untimedTasks = tasks.filter((t) => !t.time && !t.completed);
+  const completedTasks = tasks.filter((t) => t.completed);
+  const overdueTasks = tasks.filter((t) => t.date < selectedDate && !t.completed);
+
+  function getCalendarDays() {
+    const year = calendarMonth.getFullYear();
+    const month = calendarMonth.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const offset = firstDay === 0 ? 6 : firstDay - 1; // Monday start
+    const days: (number | null)[] = Array(offset).fill(null);
+    for (let d = 1; d <= daysInMonth; d++) days.push(d);
+    while (days.length % 7 !== 0) days.push(null);
+    return days;
+  }
+
+  function formatDateLabel(dateStr: string) {
+    const d = new Date(dateStr + "T12:00:00");
+    return d.toLocaleDateString("nl-NL", { weekday: "long", day: "numeric", month: "long" });
+  }
+
+  const monthNames = ["januari", "februari", "maart", "april", "mei", "juni", "juli", "augustus", "september", "oktober", "november", "december"];
+
+  // Exception response handler
+  async function handleExceptionResponse(id: string, fileInput?: HTMLInputElement) {
+    if (!responseForm.response) return;
+    setResponseSending(true);
+    const formData = new FormData();
+    formData.append("response", responseForm.response);
+    formData.append("notes", responseForm.notes);
+    if (fileInput?.files?.[0]) formData.append("file", fileInput.files[0]);
+    try {
+      const res = await fetch(`/api/exceptions/${id}/respond`, { method: "POST", body: formData });
+      if (res.ok) {
+        const updated = await res.json();
+        setExceptionTasks((prev) => prev.map((t) => t.id === id ? updated : t));
+        setRespondingTo(null);
+        setResponseForm({ response: "", notes: "" });
+      }
+    } catch { /* */ }
+    finally { setResponseSending(false); }
+  }
+
+  const openExceptionTasks = exceptionTasks.filter((t) => t.status === "waiting");
+
   const purchaseStatusLabels: Record<string, string> = { uploaded: "Geüpload", processing: "In behandeling", booked: "Geboekt" };
   const purchaseStatusColors: Record<string, string> = { uploaded: "bg-blue-100 text-blue-700", processing: "bg-amber-100 text-amber-700", booked: "bg-green-100 text-green-700" };
 
@@ -316,6 +495,74 @@ function ClientPortalContent() {
           </Link>
         )}
       </div>
+
+      {/* Exception tasks notification */}
+      {openExceptionTasks.length > 0 && section === "dashboard" && (
+        <div className="mb-6 space-y-3">
+          {openExceptionTasks.map((task) => (
+            <div key={task.id} className="bg-amber-50 border border-amber-200 rounded-xl p-4 sm:p-5">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-amber-800">{task.title}</p>
+                  <p className="text-sm text-amber-700 mt-1">{task.description}</p>
+                  {respondingTo === task.id ? (
+                    <div className="mt-3 space-y-3">
+                      {task.type === "missing_document" ? (
+                        <div className="space-y-2">
+                          <select value={responseForm.response} onChange={(e) => setResponseForm({ ...responseForm, response: e.target.value })}
+                            className="w-full border border-amber-300 rounded-lg px-3 py-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-amber-400">
+                            <option value="">Kies een antwoord...</option>
+                            <option value="upload">Ik upload de bon / factuur</option>
+                            <option value="no_invoice">Ik heb geen factuur ontvangen</option>
+                            <option value="private">Dit is privé betaald</option>
+                            <option value="other_account">Via een andere rekening betaald</option>
+                            <option value="other">Anders</option>
+                          </select>
+                          {responseForm.response === "upload" && (
+                            <input type="file" id={`exception-file-${task.id}`} accept=".pdf,.jpg,.jpeg,.png"
+                              className="w-full border border-amber-300 rounded-lg px-3 py-2 text-sm bg-white" />
+                          )}
+                        </div>
+                      ) : (
+                        <select value={responseForm.response} onChange={(e) => setResponseForm({ ...responseForm, response: e.target.value })}
+                          className="w-full border border-amber-300 rounded-lg px-3 py-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-amber-400">
+                          <option value="">Kies een antwoord...</option>
+                          <option value="paid">Betaald</option>
+                          <option value="not_paid">Nog niet betaald</option>
+                          <option value="partial">Deels betaald</option>
+                          <option value="other_account">Via andere rekening betaald</option>
+                          <option value="cash">Contant betaald</option>
+                          <option value="uncollectable">Oninbaar / discussie</option>
+                        </select>
+                      )}
+                      <textarea value={responseForm.notes} onChange={(e) => setResponseForm({ ...responseForm, notes: e.target.value })}
+                        placeholder="Opmerking toevoegen (optioneel)..." rows={2}
+                        className="w-full border border-amber-300 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-amber-400" />
+                      <div className="flex gap-2">
+                        <button onClick={() => { setRespondingTo(null); setResponseForm({ response: "", notes: "" }); }}
+                          className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-white">Annuleren</button>
+                        <button onClick={() => handleExceptionResponse(task.id, document.getElementById(`exception-file-${task.id}`) as HTMLInputElement)}
+                          disabled={!responseForm.response || responseSending}
+                          className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 disabled:opacity-50">
+                          {responseSending ? "Versturen..." : "Reactie versturen"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button onClick={() => setRespondingTo(task.id)}
+                      className="mt-3 px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700">
+                      Reageren
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ═══════════════════════════════════════════ */}
       {/* DASHBOARD */}
@@ -948,6 +1195,331 @@ function ClientPortalContent() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════ */}
+      {/* BERICHTEN */}
+      {/* ═══════════════════════════════════════════ */}
+      {section === "berichten" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h1 className="text-xl sm:text-2xl font-bold text-[#3C2C1E]">Berichten</h1>
+            <button onClick={() => setShowNewConvo(true)} className="px-3 sm:px-4 py-2 bg-[#004854] text-white rounded-xl text-sm font-medium hover:bg-[#003640] transition-colors">
+              + Nieuw bericht
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4 min-h-[60vh]">
+            {/* Conversation list */}
+            <div className={`bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden ${activeConvo ? "hidden lg:block" : ""}`}>
+              <div className="p-4 border-b border-gray-100">
+                <p className="text-sm font-semibold text-[#3C2C1E]">Gesprekken</p>
+              </div>
+              {conversations.length === 0 ? (
+                <div className="p-8 text-center">
+                  <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center mx-auto mb-3">
+                    <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+                  </div>
+                  <p className="text-sm text-gray-500">Nog geen berichten.</p>
+                  <p className="text-xs text-gray-400 mt-1">Stuur uw eerste bericht naar de boekhouder.</p>
+                  <button onClick={() => setShowNewConvo(true)} className="mt-3 text-sm text-[#00AFCB] font-medium hover:text-[#004854]">+ Nieuw bericht</button>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-50 max-h-[55vh] overflow-y-auto">
+                  {conversations.map((convo) => (
+                    <button key={convo.id} onClick={() => openConversation(convo.id)}
+                      className={`w-full text-left px-4 py-3 transition-colors ${activeConvo?.id === convo.id ? "bg-[#E6F9FC]" : "hover:bg-gray-50"}`}>
+                      <div className="flex items-start gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            {convo.unreadByUser && <span className="w-2 h-2 rounded-full bg-[#00AFCB] flex-shrink-0" />}
+                            <p className={`text-sm truncate ${convo.unreadByUser ? "font-semibold text-gray-900" : "font-medium text-gray-700"}`}>{convo.subject}</p>
+                          </div>
+                          {convo.lastMessage && <p className="text-xs text-gray-500 truncate mt-0.5">{convo.lastMessage}</p>}
+                        </div>
+                        <span className="text-[10px] text-gray-400 flex-shrink-0">{formatTimeAgo(convo.lastAt)}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Conversation detail */}
+            <div className={`bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col ${!activeConvo ? "hidden lg:flex" : ""}`}>
+              {!activeConvo ? (
+                <div className="flex-1 flex items-center justify-center p-8">
+                  <div className="text-center">
+                    <p className="text-sm text-gray-400">Selecteer een gesprek of start een nieuw bericht.</p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Conversation header */}
+                  <div className="p-4 border-b border-gray-100 flex items-center gap-3">
+                    <button onClick={() => setActiveConvo(null)} className="lg:hidden p-1 hover:bg-gray-100 rounded">
+                      <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                    </button>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-[#3C2C1E] truncate">{activeConvo.subject}</p>
+                      <p className="text-[10px] text-gray-400">{formatDate(activeConvo.createdAt.split("T")[0])}</p>
+                    </div>
+                  </div>
+
+                  {/* Messages */}
+                  <div className="flex-1 overflow-y-auto p-4 space-y-3 max-h-[50vh]">
+                    {activeConvo.messages.map((msg) => (
+                      <div key={msg.id} className={`flex ${msg.senderRole === "client" ? "justify-end" : "justify-start"}`}>
+                        <div className={`max-w-[80%] sm:max-w-[70%] rounded-2xl px-4 py-2.5 ${
+                          msg.senderRole === "client"
+                            ? "bg-[#004854] text-white rounded-br-md"
+                            : "bg-gray-100 text-gray-900 rounded-bl-md"
+                        }`}>
+                          <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
+                          <p className={`text-[10px] mt-1 ${msg.senderRole === "client" ? "text-white/50" : "text-gray-400"}`}>
+                            {msg.sender.name} &middot; {new Date(msg.createdAt).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" })}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Message input */}
+                  <div className="p-3 border-t border-gray-100">
+                    <div className="flex gap-2">
+                      <input type="text" value={msgInput} onChange={(e) => setMsgInput(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), sendMessage())}
+                        placeholder="Typ een bericht..."
+                        className="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#00AFCB]/30 focus:border-[#00AFCB]" />
+                      <button onClick={sendMessage} disabled={!msgInput.trim() || msgSending}
+                        className="px-4 py-2.5 bg-[#004854] text-white rounded-xl text-sm font-medium hover:bg-[#003640] disabled:opacity-50 flex-shrink-0">
+                        {msgSending ? "..." : "Stuur"}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* New conversation modal */}
+          {showNewConvo && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowNewConvo(false)}>
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+                <div className="p-4 sm:p-6 border-b border-gray-100 flex justify-between items-center">
+                  <h2 className="text-lg font-semibold">Nieuw bericht</h2>
+                  <button onClick={() => setShowNewConvo(false)} className="text-gray-400 hover:text-gray-600">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
+                </div>
+                <div className="p-4 sm:p-6 space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Onderwerp *</label>
+                    <input type="text" value={newConvoForm.subject} onChange={(e) => setNewConvoForm({ ...newConvoForm, subject: e.target.value })}
+                      placeholder="Waar gaat uw vraag over?" autoFocus
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#00AFCB]/30" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Bericht *</label>
+                    <textarea value={newConvoForm.message} onChange={(e) => setNewConvoForm({ ...newConvoForm, message: e.target.value })}
+                      placeholder="Typ uw bericht..." rows={4}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#00AFCB]/30" />
+                  </div>
+                  <div className="flex gap-3 pt-2">
+                    <button onClick={() => setShowNewConvo(false)} className="px-4 py-2.5 border border-gray-300 rounded-xl text-sm font-medium hover:bg-gray-50">Annuleren</button>
+                    <button onClick={createConversation} disabled={convoCreating || !newConvoForm.subject.trim() || !newConvoForm.message.trim()}
+                      className="px-5 py-2.5 bg-[#004854] text-white rounded-xl text-sm font-medium hover:bg-[#003640] disabled:opacity-50">
+                      {convoCreating ? "Versturen..." : "Bericht versturen"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════ */}
+      {/* PLANNING */}
+      {/* ═══════════════════════════════════════════ */}
+      {section === "planning" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h1 className="text-xl sm:text-2xl font-bold text-[#3C2C1E]">Planning</h1>
+            <button onClick={() => setShowAddTask(true)} className="px-3 sm:px-4 py-2 bg-[#004854] text-white rounded-xl text-sm font-medium hover:bg-[#003640] transition-colors">
+              + Nieuwe taak
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4">
+            {/* Calendar */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <button onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))} className="p-1 hover:bg-gray-100 rounded">
+                  <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                </button>
+                <p className="text-sm font-semibold text-[#3C2C1E] capitalize">{monthNames[calendarMonth.getMonth()]} {calendarMonth.getFullYear()}</p>
+                <button onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))} className="p-1 hover:bg-gray-100 rounded">
+                  <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                </button>
+              </div>
+              <div className="grid grid-cols-7 gap-0 text-center">
+                {["Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"].map((d) => <div key={d} className="text-[10px] text-gray-400 font-medium py-1">{d}</div>)}
+                {getCalendarDays().map((day, i) => {
+                  if (day === null) return <div key={`e-${i}`} />;
+                  const dateStr = `${calendarMonth.getFullYear()}-${String(calendarMonth.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                  const isToday = dateStr === new Date().toISOString().split("T")[0];
+                  const isSelected = dateStr === selectedDate;
+                  return (
+                    <button key={dateStr} onClick={() => setSelectedDate(dateStr)}
+                      className={`w-8 h-8 mx-auto rounded-full text-xs font-medium transition-all ${
+                        isSelected ? "bg-[#004854] text-white" : isToday ? "bg-[#E6F9FC] text-[#004854] font-bold" : "text-gray-700 hover:bg-gray-100"
+                      }`}>
+                      {day}
+                    </button>
+                  );
+                })}
+              </div>
+              <button onClick={() => setSelectedDate(new Date().toISOString().split("T")[0])}
+                className="mt-3 w-full text-xs text-[#00AFCB] font-medium hover:text-[#004854] transition-colors">
+                Vandaag
+              </button>
+            </div>
+
+            {/* Day content */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <h2 className="text-base sm:text-lg font-semibold text-[#3C2C1E] capitalize">{formatDateLabel(selectedDate)}</h2>
+                {selectedDate === new Date().toISOString().split("T")[0] && (
+                  <span className="text-[10px] px-2 py-0.5 bg-[#E6F9FC] text-[#004854] rounded-full font-medium">Vandaag</span>
+                )}
+              </div>
+
+              {/* Overdue tasks */}
+              {overdueTasks.length > 0 && (
+                <div className="bg-red-50 rounded-xl border border-red-200 p-4">
+                  <p className="text-xs text-red-600 font-semibold mb-2">Nog te doen (overgelopen)</p>
+                  <div className="space-y-2">
+                    {overdueTasks.map((task) => (
+                      <div key={task.id} className="flex items-center gap-3 bg-white rounded-lg px-3 py-2.5 border border-red-100">
+                        <button onClick={() => toggleTask(task.id, true)} className="w-5 h-5 rounded-full border-2 border-red-300 flex-shrink-0 hover:border-red-500 transition-colors" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900">{task.title}</p>
+                          <p className="text-[10px] text-red-500">Oorspronkelijk: {formatDate(task.date)}</p>
+                        </div>
+                        <button onClick={() => deleteTask(task.id)} className="text-gray-400 hover:text-red-500 p-1"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Timed tasks */}
+              {timedTasks.length > 0 && (
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                  <p className="text-xs text-gray-500 font-semibold mb-3 uppercase tracking-wide">Gepland</p>
+                  <div className="space-y-2">
+                    {timedTasks.map((task) => (
+                      <div key={task.id} className="flex items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-gray-50 transition-colors">
+                        <button onClick={() => toggleTask(task.id, true)} className="w-5 h-5 rounded-full border-2 border-[#00AFCB] flex-shrink-0 hover:bg-[#E6F9FC] transition-colors" />
+                        <span className="text-xs text-[#004854] font-mono font-semibold w-12 flex-shrink-0">{task.time}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900">{task.title}</p>
+                          {task.description && <p className="text-xs text-gray-500 mt-0.5">{task.description}</p>}
+                        </div>
+                        <button onClick={() => deleteTask(task.id)} className="text-gray-300 hover:text-red-500 p-1"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Untimed tasks */}
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                <p className="text-xs text-gray-500 font-semibold mb-3 uppercase tracking-wide">Taken</p>
+                {untimedTasks.length === 0 && timedTasks.length === 0 && overdueTasks.length === 0 ? (
+                  <div className="text-center py-6">
+                    <p className="text-sm text-gray-400">Geen taken voor deze dag.</p>
+                    <button onClick={() => setShowAddTask(true)} className="text-sm text-[#00AFCB] font-medium mt-2 hover:text-[#004854]">+ Taak toevoegen</button>
+                  </div>
+                ) : untimedTasks.length === 0 ? (
+                  <p className="text-sm text-gray-400 py-2">Geen losse taken.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {untimedTasks.map((task) => (
+                      <div key={task.id} className="flex items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-gray-50 transition-colors">
+                        <button onClick={() => toggleTask(task.id, true)} className="w-5 h-5 rounded-full border-2 border-gray-300 flex-shrink-0 hover:border-[#00AFCB] transition-colors" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900">{task.title}</p>
+                          {task.description && <p className="text-xs text-gray-500 mt-0.5">{task.description}</p>}
+                        </div>
+                        <button onClick={() => deleteTask(task.id)} className="text-gray-300 hover:text-red-500 p-1"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Completed tasks */}
+              {completedTasks.length > 0 && (
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 opacity-60">
+                  <p className="text-xs text-gray-400 font-semibold mb-3 uppercase tracking-wide">Klaar</p>
+                  <div className="space-y-2">
+                    {completedTasks.map((task) => (
+                      <div key={task.id} className="flex items-center gap-3 rounded-lg px-3 py-2 transition-colors">
+                        <button onClick={() => toggleTask(task.id, false)} className="w-5 h-5 rounded-full bg-emerald-500 flex-shrink-0 flex items-center justify-center">
+                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                        </button>
+                        <p className="text-sm text-gray-400 line-through">{task.title}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Add task modal */}
+          {showAddTask && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowAddTask(false)}>
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+                <div className="p-4 sm:p-6 border-b border-gray-100 flex justify-between items-center">
+                  <h2 className="text-lg font-semibold">Nieuwe taak</h2>
+                  <button onClick={() => setShowAddTask(false)} className="text-gray-400 hover:text-gray-600">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
+                </div>
+                <div className="p-4 sm:p-6 space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Wat moet er gedaan worden? *</label>
+                    <input type="text" value={newTask.title} onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
+                      placeholder="Bijv. BTW-aangifte voorbereiden" autoFocus
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#00AFCB]/30" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Toelichting (optioneel)</label>
+                    <input type="text" value={newTask.description} onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
+                      placeholder="Extra informatie..."
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#00AFCB]/30" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Tijd (optioneel)</label>
+                    <input type="time" value={newTask.time} onChange={(e) => setNewTask({ ...newTask, time: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#00AFCB]/30" />
+                  </div>
+                  <p className="text-xs text-gray-400">Datum: {formatDateLabel(selectedDate)}</p>
+                  <div className="flex gap-3 pt-2">
+                    <button onClick={() => setShowAddTask(false)} className="px-4 py-2.5 border border-gray-300 rounded-xl text-sm font-medium hover:bg-gray-50">Annuleren</button>
+                    <button onClick={addTask} disabled={taskSaving || !newTask.title.trim()}
+                      className="px-5 py-2.5 bg-[#004854] text-white rounded-xl text-sm font-medium hover:bg-[#003640] disabled:opacity-50">
+                      {taskSaving ? "Toevoegen..." : "Taak toevoegen"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

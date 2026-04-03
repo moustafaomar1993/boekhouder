@@ -129,22 +129,31 @@ export async function addInvoice(data: {
 export async function updateInvoiceBookkeepingStatus(
   id: string,
   status: string,
-  category?: string
+  category?: string,
+  vatType?: string
 ) {
   return prisma.invoice.update({
     where: { id },
     data: {
       bookkeepingStatus: status,
       ...(category && { category }),
+      ...(vatType && { vatType }),
+      ...(status === "booked" && { bookedAt: new Date() }),
+      ...(status !== "booked" && { bookedAt: null }),
     },
     include: { items: true },
   }).catch(() => null);
 }
 
 export async function updateInvoiceStatus(id: string, status: string) {
+  const data: Record<string, unknown> = { status };
+  // When invoice is sent, mark it as "to_book" for the accountant
+  if (status === "sent") {
+    data.bookkeepingStatus = "to_book";
+  }
   return prisma.invoice.update({
     where: { id },
-    data: { status },
+    data,
     include: { items: true },
   }).catch(() => null);
 }

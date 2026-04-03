@@ -21,7 +21,7 @@ export async function PATCH(
 
   let invoice;
   if (body.bookkeepingStatus) {
-    invoice = await updateInvoiceBookkeepingStatus(id, body.bookkeepingStatus, body.category);
+    invoice = await updateInvoiceBookkeepingStatus(id, body.bookkeepingStatus, body.category, body.vatType);
   }
   if (body.status) {
     invoice = await updateInvoiceStatus(id, body.status);

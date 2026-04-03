@@ -17,6 +17,8 @@ const statusLabels: Record<string, string> = {
   pending: "In afwachting",
   processing: "In verwerking",
   processed: "Verwerkt",
+  to_book: "Te boeken",
+  booked: "Geboekt",
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -28,6 +30,8 @@ function StatusBadge({ status }: { status: string }) {
     pending: "bg-yellow-100 text-yellow-700",
     processing: "bg-blue-100 text-blue-700",
     processed: "bg-green-100 text-green-700",
+    to_book: "bg-amber-100 text-amber-700",
+    booked: "bg-emerald-100 text-emerald-700",
   };
   return (
     <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${colors[status] || "bg-gray-100"}`}>
@@ -253,37 +257,28 @@ export default function InvoiceReview({ params }: { params: Promise<{ id: string
             </div>
           )}
 
-          <div className="flex gap-3">
-            {invoice.bookkeepingStatus === "pending" && (
+          <div className="flex flex-wrap gap-3">
+            {(invoice.bookkeepingStatus === "pending" || invoice.bookkeepingStatus === "to_book" || invoice.bookkeepingStatus === "processing") && (
               <button
-                onClick={() => updateStatus("processing")}
+                onClick={() => updateStatus("booked")}
                 disabled={saving}
-                className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                className="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50"
               >
-                Start verwerking
+                Boeken
               </button>
             )}
-            {(invoice.bookkeepingStatus === "pending" || invoice.bookkeepingStatus === "processing") && (
+            {(invoice.bookkeepingStatus === "booked" || invoice.bookkeepingStatus === "processed") && (
               <button
-                onClick={() => updateStatus("processed")}
+                onClick={() => updateStatus("to_book")}
                 disabled={saving}
-                className="px-5 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
-              >
-                Markeer als verwerkt
-              </button>
-            )}
-            {invoice.bookkeepingStatus === "processed" && (
-              <button
-                onClick={() => updateStatus("pending")}
-                disabled={saving}
-                className="px-5 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+                className="px-5 py-2.5 border border-gray-300 rounded-xl text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
               >
                 Heropenen
               </button>
             )}
             <button
-              onClick={() => router.push("/bookkeeper")}
-              className="px-5 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50"
+              onClick={() => router.push("/bookkeeper?section=verkoop")}
+              className="px-5 py-2.5 border border-gray-300 rounded-xl text-sm font-medium hover:bg-gray-50"
             >
               Terug naar overzicht
             </button>
