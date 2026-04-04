@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 const sidebarItems = [
   {
@@ -76,8 +76,8 @@ function ClientLayoutInner({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  const searchParams = useSearchParams();
   const isMainPage = pathname === "/client";
-  const [activeSection, setActiveSection] = useState("dashboard");
   const lastRefresh = useRef(0);
 
   // Close mobile menu on route change
@@ -103,12 +103,7 @@ function ClientLayoutInner({ children }: { children: React.ReactNode }) {
     };
   }, [refreshSession]);
 
-  useEffect(() => {
-    if (isMainPage && typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      setActiveSection(params.get("section") || "dashboard");
-    }
-  });
+  const activeSection = isMainPage ? (searchParams.get("section") || "dashboard") : "";
 
   // Prevent body scroll when mobile menu is open + ESC to close
   useEffect(() => {
@@ -270,5 +265,5 @@ function ClientLayoutInner({ children }: { children: React.ReactNode }) {
 }
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
-  return <ClientLayoutInner>{children}</ClientLayoutInner>;
+  return <Suspense><ClientLayoutInner>{children}</ClientLayoutInner></Suspense>;
 }

@@ -126,6 +126,12 @@ function BookkeeperContent() {
   const [aiDraft, setAiDraft] = useState("");
   const [aiDraftLoading, setAiDraftLoading] = useState(false);
   const [aiDraftError, setAiDraftError] = useState("");
+
+  // Message-to-task state
+  const [msgToTaskMessage, setMsgToTaskMessage] = useState<{ id: string; text: string } | null>(null);
+  const [msgToTaskForm, setMsgToTaskForm] = useState({ title: "", description: "", date: new Date().toISOString().split("T")[0], time: "", assignedTo: "customer" as "customer" | "accountant" });
+  const [msgToTaskLoading, setMsgToTaskLoading] = useState(false);
+  const [msgToTaskAiLoading, setMsgToTaskAiLoading] = useState(false);
   const [exceptionForm, setExceptionForm] = useState({ userId: "", type: "missing_document", title: "", description: "", invoiceId: "", purchaseDocId: "", bankTransactionId: "" });
   const [exceptionSaving, setExceptionSaving] = useState(false);
 
@@ -323,6 +329,49 @@ function BookkeeperContent() {
   }
 
   // Accountant berichten helpers
+  async function startMsgToTask(msg: { id: string; text: string }) {
+    setMsgToTaskMessage(msg);
+    setMsgToTaskForm({ title: "", description: "", date: new Date().toISOString().split("T")[0], time: "", assignedTo: "customer" });
+    setMsgToTaskAiLoading(true);
+    try {
+      const res = await fetch("/api/ai/summarize-task", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageText: msg.text, customerName: accActiveConvo?.user.company || accActiveConvo?.user.name }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMsgToTaskForm((prev) => ({ ...prev, title: data.title || "", description: data.description || "" }));
+      }
+    } catch { /* AI not available, user fills manually */ }
+    finally { setMsgToTaskAiLoading(false); }
+  }
+
+  async function saveMsgToTask() {
+    if (!msgToTaskMessage || !accActiveConvo || !msgToTaskForm.title.trim()) return;
+    setMsgToTaskLoading(true);
+    try {
+      const targetUserId = msgToTaskForm.assignedTo === "customer" ? accActiveConvo.user.id : undefined;
+      const res = await fetch("/api/tasks", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: targetUserId,
+          title: msgToTaskForm.title,
+          description: msgToTaskForm.description,
+          date: msgToTaskForm.date,
+          time: msgToTaskForm.time || null,
+          assignedTo: msgToTaskForm.assignedTo,
+          sourceType: "message",
+          sourceId: msgToTaskMessage.id,
+          conversationId: accActiveConvo.id,
+        }),
+      });
+      if (res.ok) {
+        setMsgToTaskMessage(null);
+      }
+    } catch { /* */ }
+    finally { setMsgToTaskLoading(false); }
+  }
+
   async function generateAiDraft() {
     if (!accActiveConvo) return;
     setAiDraftLoading(true);
@@ -1480,12 +1529,20 @@ function BookkeeperContent() {
                   </div>
                   <div className="flex-1 overflow-y-auto p-4 space-y-3 max-h-[50vh]">
                     {accActiveConvo.messages.map((msg) => (
-                      <div key={msg.id} className={`flex ${msg.senderRole !== "client" ? "justify-end" : "justify-start"}`}>
+                      <div key={msg.id} className={`flex ${msg.senderRole !== "client" ? "justify-end" : "justify-start"} group`}>
                         <div className={`max-w-[80%] sm:max-w-[70%] rounded-2xl px-4 py-2.5 ${msg.senderRole !== "client" ? "bg-[#004854] text-white rounded-br-md" : "bg-gray-100 text-gray-900 rounded-bl-md"}`}>
                           <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
-                          <p className={`text-[10px] mt-1 ${msg.senderRole !== "client" ? "text-white/50" : "text-gray-400"}`}>
-                            {msg.sender.name} &middot; {new Date(msg.createdAt).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" })}
-                          </p>
+                          <div className={`flex items-center gap-2 mt-1 ${msg.senderRole !== "client" ? "text-white/50" : "text-gray-400"}`}>
+                            <p className="text-[10px]">
+                              {msg.sender.name} &middot; {new Date(msg.createdAt).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" })}
+                            </p>
+                            {msg.senderRole === "client" && (
+                              <button onClick={() => startMsgToTask({ id: msg.id, text: msg.text })}
+                                className="text-[10px] text-[#00AFCB] hover:text-[#004854] font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                                Maak taak
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -1543,6 +1600,81 @@ function BookkeeperContent() {
               )}
             </div>
           </div>
+
+          {/* Message-to-task modal */}
+          {msgToTaskMessage && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setMsgToTaskMessage(null)}>
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+                <div className="p-4 sm:p-6 border-b border-gray-100">
+                  <div className="flex justify-between items-center mb-3">
+                    <h2 className="text-lg font-semibold">Taak maken van bericht</h2>
+                    <button onClick={() => setMsgToTaskMessage(null)} className="text-gray-400 hover:text-gray-600">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-700 border border-gray-100">
+                    <p className="text-[10px] text-gray-400 font-medium mb-1">Bronbericht</p>
+                    <p className="line-clamp-3">{msgToTaskMessage.text}</p>
+                  </div>
+                </div>
+                <div className="p-4 sm:p-6 space-y-4">
+                  {msgToTaskAiLoading && (
+                    <div className="flex items-center gap-2 text-sm text-[#00AFCB]">
+                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                      AI genereert taaksamenvatting...
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Taaktitel *</label>
+                    <input type="text" value={msgToTaskForm.title} onChange={(e) => setMsgToTaskForm({ ...msgToTaskForm, title: e.target.value })}
+                      placeholder="Bijv. Controleer BTW-verschil"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#00AFCB]/30" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Omschrijving</label>
+                    <textarea value={msgToTaskForm.description} onChange={(e) => setMsgToTaskForm({ ...msgToTaskForm, description: e.target.value })} rows={2}
+                      placeholder="Korte toelichting..."
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#00AFCB]/30" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Datum</label>
+                      <input type="date" value={msgToTaskForm.date} onChange={(e) => setMsgToTaskForm({ ...msgToTaskForm, date: e.target.value })}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#00AFCB]/30" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Tijd (optioneel)</label>
+                      <input type="time" value={msgToTaskForm.time} onChange={(e) => setMsgToTaskForm({ ...msgToTaskForm, time: e.target.value })}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#00AFCB]/30" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Toewijzen aan</label>
+                    <div className="flex gap-2">
+                      <button onClick={() => setMsgToTaskForm({ ...msgToTaskForm, assignedTo: "customer" })}
+                        className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${msgToTaskForm.assignedTo === "customer" ? "bg-[#004854] text-white" : "border border-gray-300 text-gray-600 hover:bg-gray-50"}`}>
+                        Klant
+                      </button>
+                      <button onClick={() => setMsgToTaskForm({ ...msgToTaskForm, assignedTo: "accountant" })}
+                        className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${msgToTaskForm.assignedTo === "accountant" ? "bg-[#004854] text-white" : "border border-gray-300 text-gray-600 hover:bg-gray-50"}`}>
+                        Boekhouder
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {msgToTaskForm.assignedTo === "customer" ? "Taak verschijnt in de planning van de klant" : "Taak blijft in uw eigen takenoverzicht"}
+                    </p>
+                  </div>
+                  <div className="flex gap-3 pt-2">
+                    <button onClick={() => setMsgToTaskMessage(null)} className="px-4 py-2.5 border border-gray-300 rounded-xl text-sm font-medium hover:bg-gray-50">Annuleren</button>
+                    <button onClick={saveMsgToTask} disabled={msgToTaskLoading || !msgToTaskForm.title.trim()}
+                      className="px-5 py-2.5 bg-[#004854] text-white rounded-xl text-sm font-medium hover:bg-[#003640] disabled:opacity-50">
+                      {msgToTaskLoading ? "Aanmaken..." : "Taak aanmaken"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

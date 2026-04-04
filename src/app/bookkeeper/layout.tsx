@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 const sidebarItems = [
   { key: "dashboard", label: "Dashboard", href: "/bookkeeper", icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1" /></svg> },
@@ -19,21 +19,17 @@ const sidebarItems = [
   { key: "instellingen", label: "Instellingen", href: "/bookkeeper?section=instellingen", icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg> },
 ];
 
-export default function BookkeeperLayout({ children }: { children: React.ReactNode }) {
+function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [activeSection, setActiveSection] = useState("dashboard");
   const lastRefresh = useRef(0);
 
-  useEffect(() => { setMobileMenuOpen(false); }, [pathname]);
+  const isMainPage = pathname === "/bookkeeper";
+  const activeSection = isMainPage ? (searchParams.get("section") || "dashboard") : "";
 
-  useEffect(() => {
-    if (pathname === "/bookkeeper" && typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      setActiveSection(params.get("section") || "dashboard");
-    }
-  });
+  useEffect(() => { setMobileMenuOpen(false); }, [pathname]);
 
   const refreshSession = useCallback(() => {
     const now = Date.now();
@@ -142,4 +138,8 @@ export default function BookkeeperLayout({ children }: { children: React.ReactNo
       </main>
     </div>
   );
+}
+
+export default function BookkeeperLayout({ children }: { children: React.ReactNode }) {
+  return <Suspense><BookkeeperLayoutInner>{children}</BookkeeperLayoutInner></Suspense>;
 }

@@ -49,21 +49,30 @@ export async function POST(request: Request) {
   if (!session) return Response.json({ error: "Niet ingelogd" }, { status: 401 });
 
   const body = await request.json();
-  const { title, description, date, time, category } = body;
+  const { title, description, date, time, category, userId, assignedTo, sourceType, sourceId, conversationId } = body;
 
   if (!title?.trim() || !date) {
     return Response.json({ error: "Titel en datum zijn verplicht" }, { status: 400 });
   }
 
+  // Allow bookkeeper/admin to create tasks for other users
+  const user = await prisma.user.findUnique({ where: { id: session.userId } });
+  const isAccountant = user && (user.role === "bookkeeper" || user.role === "admin");
+  const targetUserId = (isAccountant && userId) ? userId : session.userId;
+
   const task = await prisma.task.create({
     data: {
-      userId: session.userId,
+      userId: targetUserId,
       title: title.trim(),
       description: description?.trim() || null,
       date,
       time: time || null,
       category: category || null,
-      sourceType: "manual",
+      assignedTo: assignedTo || null,
+      createdByUserId: session.userId,
+      sourceType: sourceType || "manual",
+      sourceId: sourceId || null,
+      conversationId: conversationId || null,
     },
   });
 

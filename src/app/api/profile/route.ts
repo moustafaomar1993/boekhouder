@@ -5,10 +5,18 @@ export async function GET() {
   const session = await getSession();
   if (!session) return Response.json({ error: "Niet ingelogd" }, { status: 401 });
 
-  const user = await prisma.user.findUnique({
+  let user = await prisma.user.findUnique({
     where: { id: session.userId },
-    select: { id: true, name: true, email: true, company: true, vatNumber: true, kvkNumber: true, phone: true, iban: true, bankName: true, accountHolder: true, logoUrl: true, legalForm: true, reminderEnabled: true, reminder1Days: true, reminder2Days: true, reminder3Days: true, quotationValidityDays: true },
+    select: { id: true, name: true, email: true, company: true, vatNumber: true, kvkNumber: true, phone: true, iban: true, bankName: true, accountHolder: true, logoUrl: true, legalForm: true, purchaseEmail: true, reminderEnabled: true, reminder1Days: true, reminder2Days: true, reminder3Days: true, quotationValidityDays: true },
   });
+
+  // Auto-generate purchase email if not set
+  if (user && !user.purchaseEmail) {
+    const slug = (user.company || user.name || "klant").toLowerCase().replace(/[^a-z0-9]/g, "").substring(0, 20);
+    const purchaseEmail = `inkoop-${slug}-${user.id.substring(0, 6)}@hamzadeboekhouder.nl`;
+    await prisma.user.update({ where: { id: session.userId }, data: { purchaseEmail } });
+    user = { ...user, purchaseEmail };
+  }
 
   return Response.json(user);
 }
@@ -36,7 +44,7 @@ export async function PATCH(request: Request) {
   const user = await prisma.user.update({
     where: { id: session.userId },
     data,
-    select: { id: true, name: true, email: true, company: true, vatNumber: true, kvkNumber: true, phone: true, iban: true, bankName: true, accountHolder: true, logoUrl: true, legalForm: true, reminderEnabled: true, reminder1Days: true, reminder2Days: true, reminder3Days: true, quotationValidityDays: true },
+    select: { id: true, name: true, email: true, company: true, vatNumber: true, kvkNumber: true, phone: true, iban: true, bankName: true, accountHolder: true, logoUrl: true, legalForm: true, purchaseEmail: true, reminderEnabled: true, reminder1Days: true, reminder2Days: true, reminder3Days: true, quotationValidityDays: true },
   });
 
   return Response.json(user);

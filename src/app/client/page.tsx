@@ -57,7 +57,9 @@ function ClientPortalContent() {
   const [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
 
   // Inkoop state
-  const [purchaseDocs, setPurchaseDocs] = useState<{ id: string; fileName: string; fileUrl: string; fileType: string; fileSize: number; status: string; label: string | null; createdAt: string }[]>([]);
+  const [purchaseDocs, setPurchaseDocs] = useState<{ id: string; fileName: string; fileUrl: string; fileType: string; fileSize: number; status: string; label: string | null; supplierName: string | null; dueDate: string | null; totalAmount: number | null; amount: number | null; source: string; createdAt: string }[]>([]);
+  const [purchaseEmail, setPurchaseEmail] = useState("");
+  const [purchaseEmailCopied, setPurchaseEmailCopied] = useState(false);
   const [purchaseUploading, setPurchaseUploading] = useState(false);
   const [purchaseMessage, setPurchaseMessage] = useState("");
   const [purchaseDragging, setPurchaseDragging] = useState(false);
@@ -125,6 +127,9 @@ function ClientPortalContent() {
     });
     fetch("/api/customers").then((r) => r.ok ? r.json() : []).then((data) => {
       if (Array.isArray(data)) setCustomers(data);
+    }).catch(() => {});
+    fetch("/api/profile").then((r) => r.ok ? r.json() : null).then((data) => {
+      if (data?.purchaseEmail) setPurchaseEmail(data.purchaseEmail);
     }).catch(() => {});
     fetch("/api/purchases").then((r) => r.ok ? r.json() : []).then((data) => {
       if (Array.isArray(data)) setPurchaseDocs(data);
@@ -992,21 +997,70 @@ function ClientPortalContent() {
             </div>
           )}
 
+          {/* Purchase email address */}
+          {purchaseEmail && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 bg-[#E6F9FC] rounded-xl flex items-center justify-center flex-shrink-0">
+                  <svg className="w-5 h-5 text-[#00AFCB]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-semibold text-[#3C2C1E] mb-1">Facturen per e-mail ontvangen</h3>
+                  <p className="text-xs text-gray-500 mb-3">Geef dit e-mailadres aan je leveranciers zodat facturen direct in je administratie terechtkomen.</p>
+                  <div className="flex items-center gap-2">
+                    <code className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono text-[#004854] flex-1 min-w-0 truncate">{purchaseEmail}</code>
+                    <button onClick={() => { navigator.clipboard.writeText(purchaseEmail); setPurchaseEmailCopied(true); setTimeout(() => setPurchaseEmailCopied(false), 2000); }}
+                      className="px-3 py-2 bg-[#004854] text-white rounded-lg text-xs font-medium hover:bg-[#003640] transition-colors flex-shrink-0">
+                      {purchaseEmailCopied ? "Gekopieerd!" : "Kopieer"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Stats */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-              <p className="text-xs text-gray-500 font-medium mb-1">Totaal documenten</p>
+              <p className="text-xs text-gray-500 font-medium mb-1">Totaal</p>
               <p className="text-2xl font-bold text-[#004854]">{purchaseDocs.length}</p>
             </div>
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
               <p className="text-xs text-gray-500 font-medium mb-1">Geüpload</p>
               <p className="text-2xl font-bold text-blue-600">{purchaseDocs.filter((d) => d.status === "uploaded").length}</p>
             </div>
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 col-span-2 sm:col-span-1">
-              <p className="text-xs text-gray-500 font-medium mb-1">Geboekt</p>
+            <div className="bg-red-50 rounded-xl shadow-sm border border-red-100 p-4">
+              <p className="text-xs text-red-600 font-medium mb-1">Te laat</p>
+              <p className="text-2xl font-bold text-red-700">{purchaseDocs.filter((d) => d.dueDate && d.dueDate < new Date().toISOString().split("T")[0] && d.status !== "booked").length}</p>
+            </div>
+            <div className="bg-emerald-50 rounded-xl shadow-sm border border-emerald-100 p-4">
+              <p className="text-xs text-emerald-600 font-medium mb-1">Geboekt</p>
               <p className="text-2xl font-bold text-emerald-600">{purchaseDocs.filter((d) => d.status === "booked").length}</p>
             </div>
           </div>
+
+          {/* Creditor overview - overdue invoices */}
+          {purchaseDocs.filter((d) => d.dueDate && d.dueDate < new Date().toISOString().split("T")[0] && d.status !== "booked").length > 0 && (
+            <div className="bg-white rounded-xl shadow-sm border border-red-100 overflow-hidden">
+              <div className="p-4 sm:p-5 border-b border-red-100 bg-red-50">
+                <h2 className="text-sm font-semibold text-red-700">Openstaande inkoopfacturen - te laat</h2>
+                <p className="text-xs text-red-600 mt-0.5">Deze facturen zijn over de vervaldatum heen</p>
+              </div>
+              <div className="divide-y divide-gray-50">
+                {purchaseDocs.filter((d) => d.dueDate && d.dueDate < new Date().toISOString().split("T")[0] && d.status !== "booked")
+                  .sort((a, b) => (a.dueDate || "").localeCompare(b.dueDate || ""))
+                  .map((doc) => (
+                  <div key={doc.id} className="px-4 sm:px-5 py-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{doc.supplierName || doc.label || doc.fileName}</p>
+                      <p className="text-xs text-red-500">Vervaldatum: {formatDate(doc.dueDate!)}</p>
+                    </div>
+                    <p className="text-sm font-semibold flex-shrink-0">{doc.totalAmount || doc.amount ? formatCurrency(doc.totalAmount || doc.amount || 0) : "—"}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Document list */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100">
@@ -1040,6 +1094,7 @@ function ClientPortalContent() {
                         <p className="text-sm font-medium text-gray-900 truncate">{doc.label || doc.fileName}</p>
                         <p className="text-xs text-gray-400 mt-0.5">
                           {formatDate(doc.createdAt.split("T")[0])} &middot; {formatFileSize(doc.fileSize)} &middot; {doc.fileType.toUpperCase()}
+                          {doc.source === "email" && <> &middot; <span className="text-[#00AFCB]">E-mail</span></>}
                         </p>
                       </button>
                       {/* Status + actions */}
