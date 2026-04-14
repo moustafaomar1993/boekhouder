@@ -79,6 +79,11 @@ function BookkeeperContent() {
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
   const [bulkLedgerSearch, setBulkLedgerSearch] = useState("");
   const [showBulkLedgerDrop, setShowBulkLedgerDrop] = useState(false);
+  const [bookModalVatCode, setBookModalVatCode] = useState("");
+  const [bookModalVatSearch, setBookModalVatSearch] = useState("");
+  const [bulkVatCode, setBulkVatCode] = useState("");
+  const [bulkVatSearch, setBulkVatSearch] = useState("");
+  const [showBulkVatDrop, setShowBulkVatDrop] = useState(false);
 
   // Inkoop state
   interface PurchaseDoc {
@@ -203,16 +208,16 @@ function BookkeeperContent() {
     fetch("/api/vat-codes").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setVatCodes(d); }).catch(() => {});
   }, []);
 
-  async function handleBook(invoiceId: string, category?: string) {
+  async function handleBook(invoiceId: string, category?: string, vatType?: string) {
     setBookingLoading(invoiceId);
     try {
       const res = await fetch(`/api/invoices/${invoiceId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bookkeepingStatus: "booked", ...(category && { category }) }),
+        body: JSON.stringify({ bookkeepingStatus: "booked", ...(category && { category }), ...(vatType && { vatType }) }),
       });
       if (res.ok) {
-        setInvoices((prev) => prev.map((inv) => inv.id === invoiceId ? { ...inv, bookkeepingStatus: "booked", ...(category && { category }) } : inv));
+        setInvoices((prev) => prev.map((inv) => inv.id === invoiceId ? { ...inv, bookkeepingStatus: "booked", ...(category && { category }), ...(vatType && { vatType }) } : inv));
       }
     } catch { /* */ }
     finally { setBookingLoading(null); }
@@ -889,12 +894,26 @@ function BookkeeperContent() {
               const vTotalAll = clientTiles.reduce((s, c) => s + c.total, 0);
               const vOverallProgress = vTotalAll > 0 ? Math.round((vTotalBooked / vTotalAll) * 100) : 100;
 
-              // Searchable ledger accounts
+              // Searchable ledger accounts with prefix-priority
               const allActiveAccounts = ledgerAccounts.filter((a) => a.isActive);
               function filterLedger(search: string) {
                 if (!search) return allActiveAccounts.filter((a) => a.accountType === "revenue");
                 const s = search.toLowerCase();
-                return allActiveAccounts.filter((a) => a.accountNumber.startsWith(search) || a.name.toLowerCase().includes(s) || a.accountNumber.includes(search));
+                const matched = allActiveAccounts.filter((a) => a.accountNumber.startsWith(search) || a.name.toLowerCase().includes(s) || a.accountNumber.includes(search));
+                return matched.sort((a, b) => {
+                  const aPrefix = a.accountNumber.startsWith(search) ? 0 : 1;
+                  const bPrefix = b.accountNumber.startsWith(search) ? 0 : 1;
+                  if (aPrefix !== bPrefix) return aPrefix - bPrefix;
+                  return a.accountNumber.localeCompare(b.accountNumber);
+                });
+              }
+
+              // VAT code helpers
+              const salesVatCodes = vatCodes.filter((v) => v.type === "sales" && v.isActive);
+              function filterVatCodes(search: string) {
+                if (!search) return salesVatCodes;
+                const s = search.toLowerCase();
+                return salesVatCodes.filter((v) => v.code.toLowerCase().includes(s) || v.name.toLowerCase().includes(s) || v.percentage.toString().includes(s));
               }
 
               // ── CUSTOMER OVERVIEW (no client selected) ──
@@ -994,13 +1013,13 @@ function BookkeeperContent() {
                 try {
                   const res = await fetch("/api/invoices/batch-book", {
                     method: "POST", headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ invoiceIds: [...selectedSalesIds], bookkeepingStatus: "booked", category: bulkLedgerAccount }),
+                    body: JSON.stringify({ invoiceIds: [...selectedSalesIds], bookkeepingStatus: "booked", category: bulkLedgerAccount, ...(bulkVatCode && { vatType: bulkVatCode }) }),
                   });
                   const data = await res.json();
                   if (res.ok) {
                     setBulkMessage(data.message);
-                    setInvoices((prev) => prev.map((inv) => selectedSalesIds.has(inv.id) ? { ...inv, bookkeepingStatus: "booked", category: bulkLedgerAccount } : inv));
-                    setSelectedSalesIds(new Set()); setBulkLedgerSearch(""); setBulkLedgerAccount("");
+                    setInvoices((prev) => prev.map((inv) => selectedSalesIds.has(inv.id) ? { ...inv, bookkeepingStatus: "booked", category: bulkLedgerAccount, ...(bulkVatCode && { vatType: bulkVatCode }) } : inv));
+                    setSelectedSalesIds(new Set()); setBulkLedgerSearch(""); setBulkLedgerAccount(""); setBulkVatCode(""); setBulkVatSearch("");
                     setTimeout(() => setBulkMessage(""), 4000);
                   }
                 } catch { setBulkMessage("Er ging iets mis"); }
@@ -1013,7 +1032,7 @@ function BookkeeperContent() {
                 <div className="space-y-4">
                   {/* Back + header */}
                   <div className="flex items-center gap-3 flex-wrap">
-                    <button onClick={() => { setVerwerkenClient(""); setSelectedSalesIds(new Set()); setFilter("all"); setBulkLedgerSearch(""); setBulkLedgerAccount(""); }}
+                    <button onClick={() => { setVerwerkenClient(""); setSelectedSalesIds(new Set()); setFilter("all"); setBulkLedgerSearch(""); setBulkLedgerAccount(""); setBulkVatCode(""); setBulkVatSearch(""); }}
                       className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 transition-colors shrink-0">
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                     </button>
@@ -1040,12 +1059,19 @@ function BookkeeperContent() {
                   </div>
 
                   {/* Bulk action bar */}
-                  {selectedSalesIds.size > 0 && (
+                  {selectedSalesIds.size > 0 && (() => {
+                    const bulkVatFiltered = filterVatCodes(bulkVatSearch);
+                    return (
                     <div className="bg-[#004854] rounded-xl p-4 space-y-3">
-                      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                        <span className="text-sm text-white font-medium">{selectedSalesIds.size} facturen geselecteerd</span>
-                        <div className="flex flex-wrap gap-2 items-center sm:ml-auto">
-                          <div className="relative min-w-[200px]">
+                      <div className="flex flex-col gap-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-white font-medium">{selectedSalesIds.size} facturen geselecteerd</span>
+                          <button onClick={() => { setSelectedSalesIds(new Set()); setBulkLedgerAccount(""); setBulkLedgerSearch(""); setBulkVatCode(""); setBulkVatSearch(""); }} className="px-3 py-1.5 text-white/70 hover:text-white text-sm whitespace-nowrap">Annuleren</button>
+                        </div>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          {/* Ledger account */}
+                          <div className="relative flex-1 min-w-[180px]">
+                            <label className="block text-[10px] text-white/50 mb-1 uppercase tracking-wider">Grootboekrekening</label>
                             <input type="text" value={bulkLedgerSearch}
                               onChange={(e) => { setBulkLedgerSearch(e.target.value); setBulkLedgerAccount(""); setShowBulkLedgerDrop(true); }}
                               onFocus={() => setShowBulkLedgerDrop(true)}
@@ -1057,34 +1083,71 @@ function BookkeeperContent() {
                                 {bulkFilteredAccounts.slice(0, 15).map((a) => (
                                   <button key={a.id} type="button"
                                     onMouseDown={(e) => e.preventDefault()}
-                                    onClick={() => { setBulkLedgerAccount(`${a.accountNumber} ${a.name}`); setBulkLedgerSearch(`${a.accountNumber} - ${a.name}`); setShowBulkLedgerDrop(false); }}
+                                    onClick={() => {
+                                      setBulkLedgerAccount(`${a.accountNumber} ${a.name}`);
+                                      setBulkLedgerSearch(`${a.accountNumber} - ${a.name}`);
+                                      setShowBulkLedgerDrop(false);
+                                      if (a.defaultVatCode && !bulkVatCode) {
+                                        setBulkVatCode(`${a.defaultVatCode.code} ${a.defaultVatCode.name} ${a.defaultVatCode.percentage}%`);
+                                        setBulkVatSearch(`${a.defaultVatCode.code} - ${a.defaultVatCode.name} (${a.defaultVatCode.percentage}%)`);
+                                      }
+                                    }}
                                     className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm flex items-center gap-2">
                                     <span className="font-mono text-xs text-gray-400 w-10 shrink-0">{a.accountNumber}</span>
                                     <span className="text-gray-700 truncate">{a.name}</span>
+                                    {a.defaultVatCode && <span className="ml-auto text-[10px] text-gray-400 shrink-0">{a.defaultVatCode.code}</span>}
                                   </button>
                                 ))}
                               </div>
                             )}
                           </div>
-                          {bulkLedgerAccount ? (
-                            <button onClick={() => setShowBulkConfirm(true)}
-                              className="px-4 py-2 bg-emerald-500 text-white rounded-lg text-sm font-medium hover:bg-emerald-600 transition-colors whitespace-nowrap">
-                              Boek {selectedSalesIds.size} facturen
-                            </button>
-                          ) : (
-                            <span className="text-xs text-white/50 whitespace-nowrap">Selecteer een rekening</span>
-                          )}
-                          <button onClick={() => { setSelectedSalesIds(new Set()); setBulkLedgerAccount(""); setBulkLedgerSearch(""); }} className="px-3 py-2 text-white/70 hover:text-white text-sm whitespace-nowrap">Annuleren</button>
+                          {/* VAT code */}
+                          <div className="relative min-w-[160px]">
+                            <label className="block text-[10px] text-white/50 mb-1 uppercase tracking-wider">BTW-code</label>
+                            <input type="text" value={bulkVatSearch}
+                              onChange={(e) => { setBulkVatSearch(e.target.value); setBulkVatCode(""); setShowBulkVatDrop(true); }}
+                              onFocus={() => setShowBulkVatDrop(true)}
+                              onBlur={() => setTimeout(() => setShowBulkVatDrop(false), 200)}
+                              placeholder="Zoek BTW-code..."
+                              className="w-full border border-white/20 bg-white/10 text-white placeholder-white/40 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#00AFCB]/50 outline-none" />
+                            {showBulkVatDrop && bulkVatFiltered.length > 0 && (
+                              <div className="absolute z-50 w-64 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
+                                {bulkVatFiltered.map((v) => (
+                                  <button key={v.id} type="button"
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => { setBulkVatCode(`${v.code} ${v.name} ${v.percentage}%`); setBulkVatSearch(`${v.code} - ${v.name} (${v.percentage}%)`); setShowBulkVatDrop(false); }}
+                                    className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm flex items-center gap-2">
+                                    <span className="font-mono text-xs text-blue-600 w-12 shrink-0">{v.code}</span>
+                                    <span className="text-gray-700 truncate">{v.name}</span>
+                                    <span className="ml-auto text-xs text-gray-400 shrink-0">{v.percentage}%</span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          {/* Action buttons */}
+                          <div className="flex items-end gap-2">
+                            {bulkLedgerAccount ? (
+                              <button onClick={() => setShowBulkConfirm(true)}
+                                className="px-4 py-2 bg-emerald-500 text-white rounded-lg text-sm font-medium hover:bg-emerald-600 transition-colors whitespace-nowrap">
+                                Boek {selectedSalesIds.size} facturen
+                              </button>
+                            ) : (
+                              <span className="text-xs text-white/50 whitespace-nowrap py-2">Selecteer een rekening</span>
+                            )}
+                          </div>
                         </div>
                       </div>
                       {bulkLedgerAccount && (
-                        <div className="bg-white/10 rounded-lg px-3 py-2 text-xs text-white/80">
-                          <span className="font-medium">{selectedSalesIds.size} facturen</span> &rarr; <span className="font-medium">{bulkLedgerAccount}</span>
-                          &nbsp;· Totaal: <span className="font-medium">{formatCurrency([...selectedSalesIds].reduce((s, id) => { const inv = invoices.find((i) => i.id === id); return s + (inv?.total || 0); }, 0))}</span>
+                        <div className="bg-white/10 rounded-lg px-3 py-2 text-xs text-white/80 flex flex-wrap gap-x-4 gap-y-1">
+                          <span><span className="font-medium">{selectedSalesIds.size} facturen</span> &rarr; <span className="font-medium">{bulkLedgerAccount}</span></span>
+                          {bulkVatCode && <span>BTW: <span className="font-medium">{bulkVatCode}</span></span>}
+                          <span>Totaal: <span className="font-medium">{formatCurrency([...selectedSalesIds].reduce((s, id) => { const inv = invoices.find((i) => i.id === id); return s + (inv?.total || 0); }, 0))}</span></span>
                         </div>
                       )}
                     </div>
-                  )}
+                    );
+                  })()}
                   {bulkMessage && <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-2 text-sm text-emerald-700">{bulkMessage}</div>}
 
                   {/* Desktop table */}
@@ -1101,6 +1164,7 @@ function BookkeeperContent() {
                           <th className="px-3 py-3 font-medium text-right">Incl. BTW</th>
                           <th className="px-3 py-3 font-medium">Status</th>
                           <th className="px-3 py-3 font-medium">Rekening</th>
+                          <th className="px-3 py-3 font-medium">BTW-code</th>
                           <th className="px-3 py-3 font-medium text-right">Actie</th>
                         </tr>
                       </thead>
@@ -1119,10 +1183,11 @@ function BookkeeperContent() {
                               <td className="px-3 py-3 text-sm text-right font-semibold">{formatCurrency(inv.total)}</td>
                               <td className="px-3 py-3"><StatusBadge status={inv.bookkeepingStatus} /></td>
                               <td className="px-3 py-3 text-xs text-gray-500 max-w-[120px] truncate">{inv.category || <span className="text-gray-300">&mdash;</span>}</td>
+                              <td className="px-3 py-3 text-xs text-gray-500 max-w-[100px] truncate">{inv.vatType || <span className="text-gray-300">&mdash;</span>}</td>
                               <td className="px-3 py-3 text-right">
                                 <div className="flex gap-2 justify-end">
                                   {canSelect && (
-                                    <button onClick={() => { setBookModalInvoiceId(inv.id); setBookModalSearch(""); setBookModalLedger(""); }}
+                                    <button onClick={() => { setBookModalInvoiceId(inv.id); setBookModalSearch(""); setBookModalLedger(""); setBookModalVatCode(""); setBookModalVatSearch(""); }}
                                       className="text-xs px-3 py-1.5 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700">Boeken</button>
                                   )}
                                   {(inv.bookkeepingStatus === "booked" || inv.bookkeepingStatus === "processed") && (
@@ -1137,7 +1202,7 @@ function BookkeeperContent() {
                             </tr>
                           );
                         })}
-                        {clientInvs.length === 0 && <tr><td colSpan={10} className="px-5 py-12 text-center text-gray-400">Geen facturen gevonden.</td></tr>}
+                        {clientInvs.length === 0 && <tr><td colSpan={11} className="px-5 py-12 text-center text-gray-400">Geen facturen gevonden.</td></tr>}
                       </tbody>
                     </table>
                   </div>
@@ -1158,6 +1223,7 @@ function BookkeeperContent() {
                                   <p className="text-sm text-gray-900 mt-0.5">{inv.customerName}</p>
                                   <p className="text-xs text-gray-500 mt-0.5">{formatDate(inv.date)}</p>
                                   {inv.category && <p className="text-[10px] text-gray-400 mt-0.5">{inv.category}</p>}
+                                  {inv.vatType && <p className="text-[10px] text-blue-500 mt-0.5">{inv.vatType}</p>}
                                 </div>
                                 <div className="text-right shrink-0">
                                   <p className="font-semibold text-sm">{formatCurrency(inv.total)}</p>
@@ -1169,7 +1235,7 @@ function BookkeeperContent() {
                           </div>
                           <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-100 ml-7">
                             {canSelect && (
-                              <button onClick={() => { setBookModalInvoiceId(inv.id); setBookModalSearch(""); setBookModalLedger(""); }}
+                              <button onClick={() => { setBookModalInvoiceId(inv.id); setBookModalSearch(""); setBookModalLedger(""); setBookModalVatCode(""); setBookModalVatSearch(""); }}
                                 className="text-xs px-3 py-1.5 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700">Boeken</button>
                             )}
                             {(inv.bookkeepingStatus === "booked" || inv.bookkeepingStatus === "processed") && (
@@ -1191,53 +1257,152 @@ function BookkeeperContent() {
                     const modalInv = invoices.find((i) => i.id === bookModalInvoiceId);
                     if (!modalInv) return null;
                     const mAccounts = filterLedger(bookModalSearch);
+                    const mVatCodes = filterVatCodes(bookModalVatSearch);
+                    const modalItems = (modalInv as Invoice & { items?: { id: string; description: string; quantity: number; unitPrice: number; vatRate: number }[] }).items || [];
                     return (
                       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setBookModalInvoiceId(null)}>
-                        <div className="bg-white rounded-xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-                          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                        <div className="bg-white rounded-xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+                          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
                             <h3 className="text-base font-semibold text-[#3C2C1E]">Factuur boeken</h3>
                             <button onClick={() => setBookModalInvoiceId(null)} className="p-1 hover:bg-gray-100 rounded-lg"><svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
                           </div>
-                          <div className="p-6 space-y-4">
-                            <div className="bg-gray-50 rounded-lg p-3 space-y-1.5">
-                              <div className="flex justify-between text-sm"><span className="text-gray-500">Factuur</span><span className="font-medium">{modalInv.invoiceNumber}</span></div>
-                              <div className="flex justify-between text-sm"><span className="text-gray-500">Debiteur</span><span>{modalInv.customerName}</span></div>
-                              <div className="flex justify-between text-sm"><span className="text-gray-500">Bedrag</span><span className="font-semibold">{formatCurrency(modalInv.total)}</span></div>
-                            </div>
-                            <div>
-                              <label className="block text-xs font-medium text-gray-600 mb-1.5">Grootboekrekening</label>
-                              <div className="relative">
-                                <input type="text" value={bookModalSearch}
-                                  onChange={(e) => { setBookModalSearch(e.target.value); setBookModalLedger(""); }}
-                                  placeholder="Typ rekeningnummer of naam..."
-                                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" autoFocus />
-                                {bookModalSearch && !bookModalLedger && mAccounts.length > 0 && (
-                                  <div className="absolute z-50 w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
-                                    {mAccounts.slice(0, 15).map((a) => (
-                                      <button key={a.id} type="button"
-                                        onClick={() => { setBookModalLedger(`${a.accountNumber} ${a.name}`); setBookModalSearch(`${a.accountNumber} - ${a.name}`); }}
-                                        className="w-full text-left px-3 py-2.5 hover:bg-gray-50 text-sm flex items-center gap-2 border-b border-gray-50 last:border-0">
-                                        <span className="font-mono text-xs text-gray-400 w-10 shrink-0">{a.accountNumber}</span>
-                                        <span className="text-gray-700 truncate">{a.name}</span>
-                                      </button>
-                                    ))}
+                          <div className="flex-1 overflow-y-auto">
+                            <div className="p-6 flex flex-col lg:flex-row gap-6">
+                              {/* Left: Invoice preview */}
+                              <div className="flex-1 min-w-0 space-y-3">
+                                <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                                  <div className="flex justify-between text-sm"><span className="text-gray-500">Factuur</span><span className="font-medium">{modalInv.invoiceNumber}</span></div>
+                                  <div className="flex justify-between text-sm"><span className="text-gray-500">Debiteur</span><span>{modalInv.customerName}</span></div>
+                                  <div className="flex justify-between text-sm"><span className="text-gray-500">Datum</span><span>{formatDate(modalInv.date)}</span></div>
+                                </div>
+                                {/* Invoice lines */}
+                                {modalItems.length > 0 && (
+                                  <div>
+                                    <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Factuurregels</h4>
+                                    <div className="border border-gray-100 rounded-lg overflow-hidden">
+                                      <table className="w-full text-xs">
+                                        <thead><tr className="bg-gray-50 text-gray-500">
+                                          <th className="px-3 py-2 text-left font-medium">Omschrijving</th>
+                                          <th className="px-3 py-2 text-right font-medium">Aantal</th>
+                                          <th className="px-3 py-2 text-right font-medium">Prijs</th>
+                                          <th className="px-3 py-2 text-right font-medium">BTW</th>
+                                          <th className="px-3 py-2 text-right font-medium">Totaal</th>
+                                        </tr></thead>
+                                        <tbody className="divide-y divide-gray-50">
+                                          {modalItems.map((item, idx) => (
+                                            <tr key={item.id || idx}>
+                                              <td className="px-3 py-2 text-gray-700">{item.description}</td>
+                                              <td className="px-3 py-2 text-right text-gray-600">{item.quantity}</td>
+                                              <td className="px-3 py-2 text-right text-gray-600">{formatCurrency(item.unitPrice)}</td>
+                                              <td className="px-3 py-2 text-right text-gray-500">{item.vatRate}%</td>
+                                              <td className="px-3 py-2 text-right font-medium">{formatCurrency(item.quantity * item.unitPrice)}</td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                )}
+                                {/* Totals */}
+                                <div className="bg-gray-50 rounded-lg p-3 space-y-1">
+                                  <div className="flex justify-between text-xs"><span className="text-gray-500">Subtotaal</span><span>{formatCurrency(modalInv.subtotal)}</span></div>
+                                  <div className="flex justify-between text-xs"><span className="text-gray-500">BTW</span><span>{formatCurrency(modalInv.vatAmount)}</span></div>
+                                  <div className="flex justify-between text-sm font-semibold border-t border-gray-200 pt-1.5 mt-1.5"><span>Totaal</span><span>{formatCurrency(modalInv.total)}</span></div>
+                                </div>
+                                {modalInv.notes && (
+                                  <div className="bg-amber-50 rounded-lg p-3">
+                                    <p className="text-xs text-gray-500 font-medium mb-1">Opmerkingen</p>
+                                    <p className="text-sm text-gray-700">{modalInv.notes}</p>
                                   </div>
                                 )}
                               </div>
-                              {bookModalLedger && (
-                                <p className="text-xs text-emerald-600 mt-1.5 flex items-center gap-1">
-                                  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                                  {bookModalLedger}
-                                </p>
-                              )}
-                            </div>
-                            <div className="flex justify-end gap-2 pt-2">
-                              <button onClick={() => setBookModalInvoiceId(null)} className="px-4 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50">Annuleren</button>
-                              <button onClick={async () => { await handleBook(bookModalInvoiceId, bookModalLedger || undefined); setBookModalInvoiceId(null); }}
-                                disabled={bookingLoading === bookModalInvoiceId || !bookModalLedger}
-                                className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
-                                {bookingLoading === bookModalInvoiceId ? "Boeken..." : "Factuur boeken"}
-                              </button>
+
+                              {/* Right: Booking fields */}
+                              <div className="lg:w-[280px] shrink-0 space-y-4">
+                                <div>
+                                  <label className="block text-xs font-medium text-gray-600 mb-1.5">Grootboekrekening</label>
+                                  <div className="relative">
+                                    <input type="text" value={bookModalSearch}
+                                      onChange={(e) => { setBookModalSearch(e.target.value); setBookModalLedger(""); }}
+                                      placeholder="Typ nummer of naam..."
+                                      className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" autoFocus />
+                                    {bookModalSearch && !bookModalLedger && mAccounts.length > 0 && (
+                                      <div className="absolute z-50 w-72 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
+                                        {mAccounts.slice(0, 15).map((a) => (
+                                          <button key={a.id} type="button"
+                                            onClick={() => {
+                                              setBookModalLedger(`${a.accountNumber} ${a.name}`);
+                                              setBookModalSearch(`${a.accountNumber} - ${a.name}`);
+                                              if (a.defaultVatCode && !bookModalVatCode) {
+                                                setBookModalVatCode(`${a.defaultVatCode.code} ${a.defaultVatCode.name} ${a.defaultVatCode.percentage}%`);
+                                                setBookModalVatSearch(`${a.defaultVatCode.code} - ${a.defaultVatCode.name} (${a.defaultVatCode.percentage}%)`);
+                                              }
+                                            }}
+                                            className="w-full text-left px-3 py-2.5 hover:bg-gray-50 text-sm flex items-center gap-2 border-b border-gray-50 last:border-0">
+                                            <span className="font-mono text-xs text-gray-400 w-10 shrink-0">{a.accountNumber}</span>
+                                            <span className="text-gray-700 truncate">{a.name}</span>
+                                            {a.defaultVatCode && <span className="ml-auto text-[10px] text-gray-400 shrink-0">{a.defaultVatCode.code}</span>}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                  {bookModalLedger && (
+                                    <p className="text-xs text-emerald-600 mt-1.5 flex items-center gap-1">
+                                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                                      {bookModalLedger}
+                                    </p>
+                                  )}
+                                </div>
+
+                                <div>
+                                  <label className="block text-xs font-medium text-gray-600 mb-1.5">BTW-code</label>
+                                  <div className="relative">
+                                    <input type="text" value={bookModalVatSearch}
+                                      onChange={(e) => { setBookModalVatSearch(e.target.value); setBookModalVatCode(""); }}
+                                      placeholder="Zoek BTW-code..."
+                                      className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
+                                    {bookModalVatSearch && !bookModalVatCode && mVatCodes.length > 0 && (
+                                      <div className="absolute z-50 w-72 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
+                                        {mVatCodes.map((v) => (
+                                          <button key={v.id} type="button"
+                                            onClick={() => { setBookModalVatCode(`${v.code} ${v.name} ${v.percentage}%`); setBookModalVatSearch(`${v.code} - ${v.name} (${v.percentage}%)`); }}
+                                            className="w-full text-left px-3 py-2.5 hover:bg-gray-50 text-sm flex items-center gap-2 border-b border-gray-50 last:border-0">
+                                            <span className="font-mono text-xs text-blue-600 w-12 shrink-0">{v.code}</span>
+                                            <span className="text-gray-700 truncate">{v.name}</span>
+                                            <span className="ml-auto text-xs text-gray-400 shrink-0">{v.percentage}%</span>
+                                          </button>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                  {bookModalVatCode && (
+                                    <p className="text-xs text-blue-600 mt-1.5 flex items-center gap-1">
+                                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                                      {bookModalVatCode}
+                                    </p>
+                                  )}
+                                </div>
+
+                                {/* Booking summary */}
+                                {bookModalLedger && (
+                                  <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 space-y-1">
+                                    <p className="text-[10px] text-emerald-700 uppercase tracking-wider font-medium">Boekingsoverzicht</p>
+                                    <p className="text-xs text-emerald-800"><span className="text-emerald-600">Rekening:</span> {bookModalLedger}</p>
+                                    {bookModalVatCode && <p className="text-xs text-emerald-800"><span className="text-emerald-600">BTW:</span> {bookModalVatCode}</p>}
+                                    <p className="text-xs text-emerald-800"><span className="text-emerald-600">Bedrag:</span> {formatCurrency(modalInv.total)}</p>
+                                  </div>
+                                )}
+
+                                <div className="flex justify-end gap-2 pt-2">
+                                  <button onClick={() => setBookModalInvoiceId(null)} className="px-4 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50">Annuleren</button>
+                                  <button onClick={async () => { await handleBook(bookModalInvoiceId, bookModalLedger || undefined, bookModalVatCode || undefined); setBookModalInvoiceId(null); }}
+                                    disabled={bookingLoading === bookModalInvoiceId || !bookModalLedger}
+                                    className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
+                                    {bookingLoading === bookModalInvoiceId ? "Boeken..." : "Factuur boeken"}
+                                  </button>
+                                </div>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -1256,6 +1421,7 @@ function BookkeeperContent() {
                           <div className="bg-gray-50 rounded-lg p-4 space-y-2">
                             <div className="flex justify-between text-sm"><span className="text-gray-500">Aantal facturen</span><span className="font-bold">{selectedSalesIds.size}</span></div>
                             <div className="flex justify-between text-sm"><span className="text-gray-500">Grootboekrekening</span><span className="font-medium">{bulkLedgerAccount}</span></div>
+                            {bulkVatCode && <div className="flex justify-between text-sm"><span className="text-gray-500">BTW-code</span><span className="font-medium text-blue-600">{bulkVatCode}</span></div>}
                             <div className="flex justify-between text-sm border-t border-gray-200 pt-2 mt-2">
                               <span className="text-gray-500">Totaalbedrag</span>
                               <span className="font-bold text-lg">{formatCurrency([...selectedSalesIds].reduce((s, id) => { const inv = invoices.find((i) => i.id === id); return s + (inv?.total || 0); }, 0))}</span>

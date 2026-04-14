@@ -53,7 +53,11 @@
       "Bash(ssh root@65.21.107.54 \"cd /var/www/boekhouder && npx prisma db seed 2>&1 | tail -5\")",
       "Bash(ssh root@65.21.107.54 \"pm2 list --no-color 2>&1 | grep -E 'online|stopped'\")",
       "Bash(ssh root@65.21.107.54 \"pm2 delete 0 1 2 3 4 5 6 2>/dev/null; pm2 save; curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/\")",
-      "Bash(ssh root@65.21.107.54 \"curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/api/ledger-accounts && echo ' ledger-accounts' && curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/api/vat-codes && echo ' vat-codes'\")"
+      "Bash(ssh root@65.21.107.54 \"curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/api/ledger-accounts && echo ' ledger-accounts' && curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/api/vat-codes && echo ' vat-codes'\")",
+      "Bash(ssh root@65.21.107.54 'cd /var/www/boekhouder && git pull origin main && export PATH=/root/.nvm/versions/node/v22.16.0/bin:$PATH && npm ci --omit=dev && npx prisma generate && npx prisma db push --skip-generate && npm run build && pm2 restart boekhouder')",
+      "Bash(ssh root@65.21.107.54 'cd /var/www/boekhouder && export PATH=/root/.nvm/versions/node/v22.16.0/bin:$PATH && npx prisma db push && npm run build && pm2 restart boekhouder')",
+      "Bash(ssh root@65.21.107.54 'cd /var/www/boekhouder && export PATH=/root/.nvm/versions/node/v22.16.0/bin:$PATH && npm install && npm run build && pm2 restart boekhouder')",
+      "Bash(ssh root@65.21.107.54 'cd /var/www/boekhouder && git pull && npm install && npx prisma generate && npx prisma db push && npm run build && pm2 restart boekhouder')"
     ]
   }
 }

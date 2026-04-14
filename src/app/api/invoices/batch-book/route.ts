@@ -11,7 +11,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { invoiceIds, bookkeepingStatus, category, ledgerAccountId } = body;
+  const { invoiceIds, bookkeepingStatus, category, ledgerAccountId, vatType } = body;
 
   if (!invoiceIds || !Array.isArray(invoiceIds) || invoiceIds.length === 0) {
     return Response.json({ error: "Geen facturen geselecteerd" }, { status: 400 });
@@ -26,6 +26,7 @@ export async function POST(request: Request) {
     bookkeepingStatus,
     ...(category !== undefined && { category }),
     ...(ledgerAccountId !== undefined && { ledgerAccountId }),
+    ...(vatType !== undefined && { vatType }),
     ...(bookkeepingStatus === "booked" ? { bookedAt: now } : { bookedAt: null }),
   };
 
