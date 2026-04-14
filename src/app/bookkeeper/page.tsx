@@ -65,12 +65,13 @@ function BookkeeperContent() {
   const [bookingLoading, setBookingLoading] = useState<string | null>(null);
 
   // Verkoop sub-tab state
-  const [verkoopTab, setVerkoopTab] = useState<"facturatie" | "verwerken">("verwerken");
+  const [verkoopTab, setVerkoopTab] = useState<"debiteurenbeheer" | "verwerken">("verwerken");
   const [selectedSalesIds, setSelectedSalesIds] = useState<Set<string>>(new Set());
   const [bulkLedgerAccount, setBulkLedgerAccount] = useState("");
   const [bulkBookingLoading, setBulkBookingLoading] = useState(false);
   const [bulkMessage, setBulkMessage] = useState("");
   const [facturatieClient, setFacturatieClient] = useState("");
+  const [debiteurenSort, setDebiteurenSort] = useState<{ key: string; dir: "asc" | "desc" }>({ key: "dueDate", dir: "asc" });
 
   // Inkoop state
   interface PurchaseDoc {
@@ -710,145 +711,189 @@ function BookkeeperContent() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h1 className="text-xl sm:text-2xl font-bold text-[#3C2C1E]">Verkoop</h1>
-                <p className="text-sm text-[#6F5C4B]/70 mt-1">Facturatie-ondersteuning en boekingsverwerking</p>
+                <p className="text-sm text-[#6F5C4B]/70 mt-1">Debiteurenbeheer en boekingsverwerking</p>
               </div>
             </div>
 
             {/* Sub-tab switcher */}
             <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
-              <button onClick={() => setVerkoopTab("facturatie")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${verkoopTab === "facturatie" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>Facturatie</button>
+              <button onClick={() => setVerkoopTab("debiteurenbeheer")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${verkoopTab === "debiteurenbeheer" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>Debiteurenbeheer</button>
               <button onClick={() => setVerkoopTab("verwerken")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${verkoopTab === "verwerken" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>Verwerken</button>
             </div>
 
-            {/* ─── FACTURATIE TAB ─── */}
-            {verkoopTab === "facturatie" && (
-              <div className="space-y-4">
-                <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-                  <select value={facturatieClient} onChange={(e) => setFacturatieClient(e.target.value)}
-                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none min-w-[200px]">
-                    <option value="">Selecteer een klant...</option>
-                    {facturatieClients.map((c) => <option key={c.id} value={c.id}>{c.company || c.name}</option>)}
-                  </select>
-                </div>
+            {/* ─── DEBITEURENBEHEER TAB ─── */}
+            {verkoopTab === "debiteurenbeheer" && (() => {
+              const dbClient = facturatieClient;
+              const dbClients = facturatieClients;
+              const dbInvoices = dbClient ? invoices.filter((inv) => inv.clientId === dbClient) : [];
+              // Sort logic
+              const sortKey = debiteurenSort.key;
+              const sortDir = debiteurenSort.dir;
+              function toggleSort(key: string) {
+                setDebiteurenSort((prev) => prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" });
+              }
+              function SortHeader({ k, label, className: cls }: { k: string; label: string; className?: string }) {
+                const active = sortKey === k;
+                return <th className={`px-3 py-2.5 font-medium cursor-pointer select-none hover:text-gray-700 ${cls || ""}`} onClick={() => toggleSort(k)}>
+                  {label} {active && <span className="text-[#00AFCB]">{sortDir === "asc" ? "↑" : "↓"}</span>}
+                </th>;
+              }
+              const sorted = [...dbInvoices].sort((a, b) => {
+                const dir = sortDir === "asc" ? 1 : -1;
+                switch (sortKey) {
+                  case "invoiceNumber": return a.invoiceNumber.localeCompare(b.invoiceNumber) * dir;
+                  case "customerName": return a.customerName.localeCompare(b.customerName) * dir;
+                  case "date": return a.date.localeCompare(b.date) * dir;
+                  case "dueDate": return a.dueDate.localeCompare(b.dueDate) * dir;
+                  case "status": return a.status.localeCompare(b.status) * dir;
+                  case "total": return (a.total - b.total) * dir;
+                  case "reminders": return ((a.remindersSent || 0) - (b.remindersSent || 0)) * dir;
+                  default: return 0;
+                }
+              });
+              const openInvs = dbInvoices.filter((i) => i.status === "sent" || i.status === "overdue");
+              const overdueInvs = dbInvoices.filter((i) => {
+                if (i.status !== "sent" && i.status !== "overdue") return false;
+                return new Date(i.dueDate) < new Date();
+              });
+              const newToProcess = dbInvoices.filter((i) => i.bookkeepingStatus === "pending" || i.bookkeepingStatus === "to_book");
 
-                {!facturatieClient && (
-                  <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
-                    <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                    <p className="text-sm text-gray-500">Selecteer een klant om de facturatie-omgeving te openen.</p>
-                    <p className="text-xs text-gray-400 mt-1">Je kunt facturen inzien en ondersteunen wanneer de klant toegang heeft verleend.</p>
+              return (
+                <div className="space-y-4">
+                  <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+                    <select value={facturatieClient} onChange={(e) => setFacturatieClient(e.target.value)}
+                      className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none min-w-[200px]">
+                      <option value="">Selecteer een klant...</option>
+                      {dbClients.map((c) => <option key={c.id} value={c.id}>{c.company || c.name}</option>)}
+                    </select>
                   </div>
-                )}
 
-                {facturatieClient && (
-                  <div className="space-y-4">
-                    {/* Permission notice */}
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex items-start gap-3">
-                      <svg className="w-5 h-5 text-blue-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                      <div>
-                        <p className="text-sm font-medium text-blue-800">Facturatie-inzage voor {facturatieClients.find((c) => c.id === facturatieClient)?.company || "klant"}</p>
-                        <p className="text-xs text-blue-600 mt-0.5">Je bekijkt de facturen van deze klant. Wijzigingen worden direct op de originele factuurgegevens toegepast.</p>
+                  {!dbClient && (
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
+                      <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                      <p className="text-sm text-gray-500">Selecteer een klant om het debiteurenbeheer te openen.</p>
+                      <p className="text-xs text-gray-400 mt-1">Beheer openstaande facturen, stuur herinneringen en volg debiteuren op.</p>
+                    </div>
+                  )}
+
+                  {dbClient && (
+                    <div className="space-y-4">
+                      {/* Summary cards */}
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                          <p className="text-xs text-gray-500">Totaal</p>
+                          <p className="text-lg font-bold text-[#004854]">{dbInvoices.length}</p>
+                        </div>
+                        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                          <p className="text-xs text-gray-500">Openstaand</p>
+                          <p className="text-lg font-bold text-amber-600">{openInvs.length}</p>
+                          <p className="text-xs text-gray-400">{formatCurrency(openInvs.reduce((s, i) => s + i.total, 0))}</p>
+                        </div>
+                        <div className={`rounded-xl p-4 shadow-sm border ${overdueInvs.length > 0 ? "bg-red-50 border-red-200" : "bg-white border-gray-100"}`}>
+                          <p className={`text-xs ${overdueInvs.length > 0 ? "text-red-700 font-semibold" : "text-gray-500"}`}>Verlopen</p>
+                          <p className={`text-lg font-bold ${overdueInvs.length > 0 ? "text-red-600" : "text-gray-400"}`}>{overdueInvs.length}</p>
+                          {overdueInvs.length > 0 && <p className="text-xs text-red-500 font-medium">{formatCurrency(overdueInvs.reduce((s, i) => s + i.total, 0))}</p>}
+                        </div>
+                        <div className={`rounded-xl p-4 shadow-sm border ${newToProcess.length > 0 ? "bg-blue-50 border-blue-200" : "bg-white border-gray-100"}`}>
+                          <p className={`text-xs ${newToProcess.length > 0 ? "text-blue-700" : "text-gray-500"}`}>Nieuw / te verwerken</p>
+                          <p className={`text-lg font-bold ${newToProcess.length > 0 ? "text-blue-600" : "text-gray-400"}`}>{newToProcess.length}</p>
+                        </div>
+                        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                          <p className="text-xs text-gray-500">Betaald</p>
+                          <p className="text-lg font-bold text-emerald-600">{dbInvoices.filter((i) => i.status === "paid").length}</p>
+                        </div>
+                      </div>
+
+                      {/* Desktop table with sortable headers */}
+                      <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
+                        <table className="w-full">
+                          <thead><tr className="text-left text-[11px] text-gray-500 border-b border-gray-100 bg-gray-50">
+                            <SortHeader k="invoiceNumber" label="Factuurnr." className="px-4" />
+                            <SortHeader k="customerName" label="Debiteur" />
+                            <SortHeader k="date" label="Datum" />
+                            <SortHeader k="dueDate" label="Vervaldatum" />
+                            <SortHeader k="status" label="Status" />
+                            <SortHeader k="total" label="Bedrag" className="text-right" />
+                            <SortHeader k="reminders" label="Herinn." className="text-center" />
+                            <th className="px-3 py-2.5 font-medium text-right">Actie</th>
+                          </tr></thead>
+                          <tbody className="divide-y divide-gray-50">
+                            {sorted.map((inv) => {
+                              const dueDate = new Date(inv.dueDate);
+                              const daysOver = Math.floor((Date.now() - dueDate.getTime()) / 86400000);
+                              const isOverdue = daysOver > 0 && (inv.status === "sent" || inv.status === "overdue");
+                              const isNew = inv.bookkeepingStatus === "pending" || inv.bookkeepingStatus === "to_book";
+                              return (
+                                <tr key={inv.id} className={`hover:bg-gray-50/80 ${isOverdue ? "bg-red-50/50 border-l-2 border-l-red-400" : isNew ? "bg-blue-50/30 border-l-2 border-l-blue-400" : ""}`}>
+                                  <td className="px-4 py-3 font-medium text-sm">
+                                    {inv.invoiceNumber}
+                                    {inv.isCredit && <span className="ml-1 text-[10px] text-red-500">(credit)</span>}
+                                  </td>
+                                  <td className="px-3 py-3 text-sm text-gray-700">{inv.customerName}</td>
+                                  <td className="px-3 py-3 text-sm text-gray-600">{formatDate(inv.date)}</td>
+                                  <td className="px-3 py-3 text-sm">
+                                    <span className={isOverdue ? "text-red-600 font-semibold" : "text-gray-600"}>{formatDate(inv.dueDate)}</span>
+                                    {isOverdue && <span className="block text-[10px] text-red-500 font-medium">{daysOver}d over</span>}
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    <StatusBadge status={inv.status} />
+                                    {isOverdue && <span className="block mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-100 text-red-700 w-fit">URGENT</span>}
+                                    {isNew && !isOverdue && <span className="block mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium bg-blue-100 text-blue-700 w-fit">NIEUW</span>}
+                                  </td>
+                                  <td className="px-3 py-3 text-right font-semibold text-sm">{formatCurrency(inv.total)}</td>
+                                  <td className="px-3 py-3 text-center">
+                                    {inv.remindersSent > 0 ? <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700">{inv.remindersSent}x</span> : <span className="text-xs text-gray-300">—</span>}
+                                  </td>
+                                  <td className="px-3 py-3 text-right">
+                                    <Link href={`/bookkeeper/invoices/${inv.id}`} className="text-sm text-[#00AFCB] hover:text-[#004854] font-medium">Bekijken</Link>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                            {sorted.length === 0 && <tr><td colSpan={8} className="px-5 py-12 text-center text-gray-400">Geen facturen voor deze klant.</td></tr>}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Mobile cards */}
+                      <div className="md:hidden space-y-3">
+                        {sorted.map((inv) => {
+                          const dueDate = new Date(inv.dueDate);
+                          const daysOver = Math.floor((Date.now() - dueDate.getTime()) / 86400000);
+                          const isOverdue = daysOver > 0 && (inv.status === "sent" || inv.status === "overdue");
+                          const isNew = inv.bookkeepingStatus === "pending" || inv.bookkeepingStatus === "to_book";
+                          return (
+                            <Link key={inv.id} href={`/bookkeeper/invoices/${inv.id}`}
+                              className={`block rounded-xl shadow-sm p-4 transition-colors ${isOverdue ? "bg-red-50 border-2 border-red-200" : isNew ? "bg-blue-50/50 border border-blue-200" : "bg-white border border-gray-100 hover:border-[#00AFCB]/30"}`}>
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-sm font-medium text-[#004854]">{inv.invoiceNumber}</p>
+                                    {isOverdue && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-100 text-red-700">URGENT</span>}
+                                    {isNew && !isOverdue && <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-blue-100 text-blue-700">NIEUW</span>}
+                                  </div>
+                                  <p className="text-sm text-gray-900 mt-0.5">{inv.customerName}</p>
+                                  <p className="text-xs text-gray-500 mt-0.5">
+                                    {formatDate(inv.date)} &middot; vervalt {formatDate(inv.dueDate)}
+                                    {isOverdue && <span className="text-red-500 font-medium"> ({daysOver}d over)</span>}
+                                  </p>
+                                  {inv.remindersSent > 0 && <p className="text-[10px] text-amber-600 mt-1">{inv.remindersSent} herinnering(en) verstuurd</p>}
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <p className="font-semibold text-sm">{formatCurrency(inv.total)}</p>
+                                  <div className="mt-1"><StatusBadge status={inv.status} /></div>
+                                </div>
+                              </div>
+                            </Link>
+                          );
+                        })}
+                        {sorted.length === 0 && <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-4 py-12 text-center text-gray-400">Geen facturen voor deze klant.</div>}
                       </div>
                     </div>
-
-                    {/* Summary cards */}
-                    {(() => {
-                      const openInvs = facturatieInvoices.filter((i) => i.status === "sent" || i.status === "overdue");
-                      const overdueInvs = facturatieInvoices.filter((i) => i.status === "overdue");
-                      const openAmount = openInvs.reduce((s, i) => s + i.total, 0);
-                      const overdueAmount = overdueInvs.reduce((s, i) => s + i.total, 0);
-                      return (
-                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                          <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-                            <p className="text-xs text-gray-500">Totaal facturen</p>
-                            <p className="text-lg font-bold text-[#004854]">{facturatieInvoices.length}</p>
-                          </div>
-                          <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-                            <p className="text-xs text-gray-500">Openstaand</p>
-                            <p className="text-lg font-bold text-amber-600">{openInvs.length}</p>
-                            <p className="text-xs text-gray-400">{formatCurrency(openAmount)}</p>
-                          </div>
-                          <div className="bg-amber-50 rounded-xl p-4 shadow-sm border border-amber-100">
-                            <p className="text-xs text-amber-700">Verlopen</p>
-                            <p className="text-lg font-bold text-red-600">{overdueInvs.length}</p>
-                            <p className="text-xs text-red-500">{formatCurrency(overdueAmount)}</p>
-                          </div>
-                          <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-                            <p className="text-xs text-gray-500">Betaald</p>
-                            <p className="text-lg font-bold text-emerald-600">{facturatieInvoices.filter((i) => i.status === "paid").length}</p>
-                          </div>
-                          <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-                            <p className="text-xs text-gray-500">Totale omzet</p>
-                            <p className="text-lg font-bold text-[#004854]">{formatCurrency(facturatieInvoices.reduce((s, i) => s + i.subtotal, 0))}</p>
-                          </div>
-                        </div>
-                      );
-                    })()}
-
-                    {/* Invoice list */}
-                    <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
-                      <table className="w-full">
-                        <thead><tr className="text-left text-[11px] text-gray-500 border-b border-gray-100 bg-gray-50">
-                          <th className="px-4 py-2.5 font-medium">Factuurnr.</th><th className="px-3 py-2.5 font-medium">Debiteur</th>
-                          <th className="px-3 py-2.5 font-medium">Datum</th><th className="px-3 py-2.5 font-medium">Vervaldatum</th>
-                          <th className="px-3 py-2.5 font-medium">Status</th><th className="px-3 py-2.5 font-medium text-right">Bedrag</th>
-                          <th className="px-3 py-2.5 font-medium text-center">Herinneringen</th>
-                          <th className="px-3 py-2.5 font-medium text-right">Actie</th>
-                        </tr></thead>
-                        <tbody className="divide-y divide-gray-50">
-                          {facturatieInvoices.map((inv) => {
-                            const dueDate = new Date(inv.dueDate);
-                            const daysOver = Math.floor((Date.now() - dueDate.getTime()) / 86400000);
-                            const isOverdue = daysOver > 0 && (inv.status === "sent" || inv.status === "overdue");
-                            return (
-                              <tr key={inv.id} className={`hover:bg-gray-50 ${isOverdue ? "bg-red-50/30" : ""}`}>
-                                <td className="px-4 py-3 font-medium text-sm">
-                                  {inv.invoiceNumber}
-                                  {inv.isCredit && <span className="ml-1 text-[10px] text-red-500">(credit)</span>}
-                                </td>
-                                <td className="px-3 py-3 text-sm text-gray-600">{inv.customerName}</td>
-                                <td className="px-3 py-3 text-sm text-gray-600">{formatDate(inv.date)}</td>
-                                <td className="px-3 py-3 text-sm">
-                                  <span className={isOverdue ? "text-red-600 font-medium" : "text-gray-600"}>{formatDate(inv.dueDate)}</span>
-                                  {isOverdue && <span className="block text-[10px] text-red-500">{daysOver}d over</span>}
-                                </td>
-                                <td className="px-3 py-3"><StatusBadge status={inv.status} /></td>
-                                <td className="px-3 py-3 text-right font-semibold text-sm">{formatCurrency(inv.total)}</td>
-                                <td className="px-3 py-3 text-center">
-                                  {inv.remindersSent > 0 ? <span className="text-xs text-amber-600 font-medium">{inv.remindersSent}x</span> : <span className="text-xs text-gray-300">—</span>}
-                                </td>
-                                <td className="px-3 py-3 text-right">
-                                  <Link href={`/bookkeeper/invoices/${inv.id}`} className="text-sm text-[#00AFCB] hover:text-[#004854] font-medium">Bekijken</Link>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                          {facturatieInvoices.length === 0 && <tr><td colSpan={8} className="px-5 py-12 text-center text-gray-400">Geen facturen voor deze klant.</td></tr>}
-                        </tbody>
-                      </table>
-                    </div>
-                    {/* Mobile cards */}
-                    <div className="md:hidden space-y-3">
-                      {facturatieInvoices.map((inv) => (
-                        <Link key={inv.id} href={`/bookkeeper/invoices/${inv.id}`} className="block bg-white rounded-xl shadow-sm border border-gray-100 p-4 hover:border-[#00AFCB]/30">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium text-[#004854]">{inv.invoiceNumber}</p>
-                              <p className="text-sm text-gray-900 mt-0.5">{inv.customerName}</p>
-                              <p className="text-xs text-gray-500 mt-0.5">{formatDate(inv.date)} &middot; vervalt {formatDate(inv.dueDate)}</p>
-                            </div>
-                            <div className="text-right shrink-0">
-                              <p className="font-semibold text-sm">{formatCurrency(inv.total)}</p>
-                              <div className="mt-1"><StatusBadge status={inv.status} /></div>
-                            </div>
-                          </div>
-                        </Link>
-                      ))}
-                      {facturatieInvoices.length === 0 && <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-4 py-12 text-center text-gray-400">Geen facturen voor deze klant.</div>}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+                  )}
+                </div>
+              );
+            })()}
 
             {/* ─── VERWERKEN TAB ─── */}
             {verkoopTab === "verwerken" && (

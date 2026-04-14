@@ -26,6 +26,7 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
   const searchParams = useSearchParams();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const lastRefresh = useRef(0);
+  const [sidebarCounts, setSidebarCounts] = useState<{ toProcess: number; overdue: number }>({ toProcess: 0, overdue: 0 });
 
   const isMainPage = pathname === "/bookkeeper";
   const activeSection = isMainPage
@@ -61,6 +62,17 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
     return () => { document.body.style.overflow = ""; };
   }, [mobileMenuOpen]);
 
+  // Fetch sidebar badge counts
+  useEffect(() => {
+    fetch("/api/invoices").then((r) => r.ok ? r.json() : []).then((invs: { bookkeepingStatus: string; status: string; dueDate: string }[]) => {
+      if (!Array.isArray(invs)) return;
+      const toProcess = invs.filter((i) => i.bookkeepingStatus === "pending" || i.bookkeepingStatus === "to_book").length;
+      const now = new Date();
+      const overdue = invs.filter((i) => (i.status === "sent" || i.status === "overdue") && new Date(i.dueDate) < now).length;
+      setSidebarCounts({ toProcess, overdue });
+    }).catch(() => {});
+  }, []);
+
   const navContent = (
     <>
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
@@ -74,7 +86,13 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
               }`}>
               {isActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-[#00AFCB] rounded-r-full" />}
               <span className={isActive ? "text-[#00AFCB]" : "text-white/40"}>{item.icon}</span>
-              {item.label}
+              <span className="flex-1">{item.label}</span>
+              {item.key === "verkoop" && (sidebarCounts.toProcess > 0 || sidebarCounts.overdue > 0) && (
+                <span className="flex items-center gap-1">
+                  {sidebarCounts.toProcess > 0 && <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-blue-500 text-[10px] font-bold text-white leading-none px-1">{sidebarCounts.toProcess}</span>}
+                  {sidebarCounts.overdue > 0 && <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white leading-none px-1">{sidebarCounts.overdue}</span>}
+                </span>
+              )}
             </Link>
           );
         })}
