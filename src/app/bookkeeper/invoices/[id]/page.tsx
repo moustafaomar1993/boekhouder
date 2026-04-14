@@ -77,6 +77,9 @@ function InvoiceReviewInner({ id }: { id: string }) {
   const [vatCodes, setVatCodes] = useState<VatCodeData[]>([]);
   const [vatSearch, setVatSearch] = useState("");
   const [selectedVat, setSelectedVat] = useState("");
+  const [bookingMode, setBookingMode] = useState<"invoice" | "line">("invoice");
+  const [lineBookings, setLineBookings] = useState<Record<string, { ledger: string; ledgerSearch: string; vatCode: string; vatSearch: string }>>({});
+  const [activeLineDrop, setActiveLineDrop] = useState<string | null>(null); // "ledger-{id}" or "vat-{id}"
 
   useEffect(() => {
     fetch(`/api/invoices/${id}`).then((r) => r.json()).then((inv) => {
@@ -84,6 +87,22 @@ function InvoiceReviewInner({ id }: { id: string }) {
       setCategory(inv.category || "Omzet");
       if (inv.category) { setSelectedLedger(inv.category); setLedgerSearch(inv.category); }
       if (inv.vatType) { setSelectedVat(inv.vatType); setVatSearch(inv.vatType); }
+      // Initialize line bookings from existing item data
+      if (inv.items && Array.isArray(inv.items)) {
+        const lb: Record<string, { ledger: string; ledgerSearch: string; vatCode: string; vatSearch: string }> = {};
+        let hasLineData = false;
+        for (const item of inv.items) {
+          lb[item.id] = {
+            ledger: item.category || "",
+            ledgerSearch: item.category || "",
+            vatCode: item.vatCode || "",
+            vatSearch: item.vatCode || "",
+          };
+          if (item.category || item.vatCode) hasLineData = true;
+        }
+        setLineBookings(lb);
+        if (hasLineData) setBookingMode("line");
+      }
     });
     fetch("/api/clients").then((r) => r.json()).then(setClients);
     if (fromVerwerken) {
@@ -123,14 +142,30 @@ function InvoiceReviewInner({ id }: { id: string }) {
 
   async function updateStatus(bookkeepingStatus: string) {
     setSaving(true);
-    const cat = fromVerwerken && selectedLedger ? selectedLedger : category;
-    const vat = fromVerwerken && selectedVat ? selectedVat : undefined;
-    const res = await fetch(`/api/invoices/${id}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bookkeepingStatus, category: cat, ...(vat && { vatType: vat }) }),
-    });
-    const updated = await res.json();
-    setInvoice(updated);
+    if (fromVerwerken && bookingMode === "line") {
+      // Line-level booking
+      const lbArray = Object.entries(lineBookings).map(([itemId, lb]) => ({
+        itemId,
+        category: lb.ledger || null,
+        vatCode: lb.vatCode || null,
+      }));
+      const res = await fetch(`/api/invoices/${id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookkeepingStatus, category: "Per regel geboekt", vatType: "Per regel", lineBookings: lbArray }),
+      });
+      const updated = await res.json();
+      setInvoice(updated);
+    } else {
+      // Invoice-level booking
+      const cat = fromVerwerken && selectedLedger ? selectedLedger : category;
+      const vat = fromVerwerken && selectedVat ? selectedVat : undefined;
+      const res = await fetch(`/api/invoices/${id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookkeepingStatus, category: cat, ...(vat && { vatType: vat }) }),
+      });
+      const updated = await res.json();
+      setInvoice(updated);
+    }
     setSaving(false);
   }
 
@@ -208,6 +243,30 @@ function InvoiceReviewInner({ id }: { id: string }) {
     return salesVatCodes.filter((v) => v.code.toLowerCase().includes(s) || v.name.toLowerCase().includes(s) || v.percentage.toString().includes(s));
   })();
 
+  // Line-level filter helpers
+  const activeAccounts = ledgerAccounts.filter((a) => a.isActive);
+  function filterLedgerForLine(search: string) {
+    if (!search) return activeAccounts.filter((a) => a.accountType === "revenue");
+    const s = search.toLowerCase();
+    const matched = activeAccounts.filter((a) => a.accountNumber.startsWith(search) || a.name.toLowerCase().includes(s) || a.accountNumber.includes(search));
+    return matched.sort((a, b) => {
+      const aP = a.accountNumber.startsWith(search) ? 0 : 1;
+      const bP = b.accountNumber.startsWith(search) ? 0 : 1;
+      return aP !== bP ? aP - bP : a.accountNumber.localeCompare(b.accountNumber);
+    });
+  }
+  function filterVatForLine(search: string) {
+    if (!search) return salesVatCodes;
+    const s = search.toLowerCase();
+    return salesVatCodes.filter((v) => v.code.toLowerCase().includes(s) || v.name.toLowerCase().includes(s) || v.percentage.toString().includes(s));
+  }
+  function updateLineLedger(itemId: string, field: string, value: string) {
+    setLineBookings((prev) => ({ ...prev, [itemId]: { ...prev[itemId], [field]: value } }));
+  }
+  const hasMultipleLines = invoice ? invoice.items.length > 1 : false;
+  const canBook = invoice?.bookkeepingStatus === "pending" || invoice?.bookkeepingStatus === "to_book" || invoice?.bookkeepingStatus === "processing";
+  const allLinesFilled = bookingMode === "line" ? Object.values(lineBookings).every((lb) => lb.ledger) : !!selectedLedger;
+
   // ═══ PROCESSING-FOCUSED VIEW (from Verwerken) ═══
   if (fromVerwerken) {
     return (
@@ -265,147 +324,360 @@ function InvoiceReviewInner({ id }: { id: string }) {
             </div>
           </div>
 
-          {/* Invoice lines */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-            <div className="px-5 py-3 border-b border-gray-100"><h2 className="text-sm font-semibold text-[#3C2C1E]">Factuurregels</h2></div>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead><tr className="text-left text-xs text-gray-500 border-b border-gray-100 bg-gray-50">
-                  <th className="px-5 py-2.5 font-medium">Omschrijving</th><th className="px-3 py-2.5 font-medium text-right">Aantal</th>
-                  <th className="px-3 py-2.5 font-medium text-right">Prijs</th><th className="px-3 py-2.5 font-medium text-right">BTW</th>
-                  <th className="px-3 py-2.5 font-medium text-right">Totaal</th>
-                </tr></thead>
-                <tbody className="divide-y divide-gray-50">
-                  {invoice.items.map((item, i) => (
-                    <tr key={i}>
-                      <td className="px-5 py-3 text-sm">{item.description}</td>
-                      <td className="px-3 py-3 text-sm text-right">{item.quantity}</td>
-                      <td className="px-3 py-3 text-sm text-right">{formatCurrency(item.unitPrice)}</td>
-                      <td className="px-3 py-3 text-sm text-right text-gray-500">{item.vatRate}%</td>
-                      <td className="px-3 py-3 text-sm text-right font-medium">{formatCurrency(item.quantity * item.unitPrice)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="border-t border-gray-200 p-5">
-              <div className="w-56 ml-auto space-y-1.5">
-                <div className="flex justify-between text-sm"><span className="text-gray-500">Subtotaal</span><span>{formatCurrency(invoice.subtotal)}</span></div>
-                <div className="flex justify-between text-sm"><span className="text-gray-500">BTW</span><span>{formatCurrency(invoice.vatAmount)}</span></div>
-                <div className="flex justify-between text-base font-bold border-t border-gray-200 pt-1.5"><span>Totaal</span><span>{formatCurrency(invoice.total)}</span></div>
-              </div>
-            </div>
-          </div>
-
-          {/* ══ BOOKKEEPING PROCESSING (prominent) ══ */}
+          {/* ══ BOOKKEEPING PROCESSING ══ */}
           <div className="bg-white rounded-xl shadow-sm border-2 border-[#00AFCB]/20 p-5 sm:p-6">
-            <h2 className="text-base font-semibold text-[#3C2C1E] mb-4 flex items-center gap-2">
-              <svg className="w-5 h-5 text-[#00AFCB]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
-              Boekhouding verwerking
-            </h2>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
-              {/* Searchable ledger account */}
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">Grootboekrekening</label>
-                <div className="relative">
-                  <input type="text" value={ledgerSearch}
-                    onChange={(e) => { setLedgerSearch(e.target.value); setSelectedLedger(""); }}
-                    placeholder="Typ nummer of naam..."
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
-                  {ledgerSearch && !selectedLedger && filteredLedgerAccounts.length > 0 && (
-                    <div className="absolute z-50 w-72 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
-                      {filteredLedgerAccounts.slice(0, 15).map((a: LedgerAccountData) => (
-                        <button key={a.id} type="button"
-                          onClick={() => {
-                            setSelectedLedger(`${a.accountNumber} ${a.name}`);
-                            setLedgerSearch(`${a.accountNumber} - ${a.name}`);
-                            if (a.defaultVatCode && !selectedVat) {
-                              setSelectedVat(`${a.defaultVatCode.code} ${a.defaultVatCode.name} ${a.defaultVatCode.percentage}%`);
-                              setVatSearch(`${a.defaultVatCode.code} - ${a.defaultVatCode.name} (${a.defaultVatCode.percentage}%)`);
-                            }
-                          }}
-                          className="w-full text-left px-3 py-2.5 hover:bg-gray-50 text-sm flex items-center gap-2 border-b border-gray-50 last:border-0">
-                          <span className="font-mono text-xs text-gray-400 w-10 shrink-0">{a.accountNumber}</span>
-                          <span className="text-gray-700 truncate">{a.name}</span>
-                          {a.defaultVatCode && <span className="ml-auto text-[10px] text-gray-400 shrink-0">{a.defaultVatCode.code}</span>}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+              <h2 className="text-base font-semibold text-[#3C2C1E] flex items-center gap-2">
+                <svg className="w-5 h-5 text-[#00AFCB]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+                Boekhouding verwerking
+              </h2>
+              {/* Mode toggle - only show for multi-line invoices */}
+              {hasMultipleLines && canBook && (
+                <div className="flex bg-gray-100 p-0.5 rounded-lg">
+                  <button onClick={() => setBookingMode("invoice")}
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${bookingMode === "invoice" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+                    Hele factuur
+                  </button>
+                  <button onClick={() => setBookingMode("line")}
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${bookingMode === "line" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+                    Per regel
+                  </button>
                 </div>
-                {selectedLedger && (
-                  <p className="text-xs text-emerald-600 mt-1.5 flex items-center gap-1">
-                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                    {selectedLedger}
-                  </p>
-                )}
-              </div>
-
-              {/* BTW-code */}
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">BTW-code</label>
-                <div className="relative">
-                  <input type="text" value={vatSearch}
-                    onChange={(e) => { setVatSearch(e.target.value); setSelectedVat(""); }}
-                    placeholder="Zoek BTW-code..."
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
-                  {vatSearch && !selectedVat && filteredVatCodes.length > 0 && (
-                    <div className="absolute z-50 w-64 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
-                      {filteredVatCodes.map((v) => (
-                        <button key={v.id} type="button"
-                          onClick={() => { setSelectedVat(`${v.code} ${v.name} ${v.percentage}%`); setVatSearch(`${v.code} - ${v.name} (${v.percentage}%)`); }}
-                          className="w-full text-left px-3 py-2.5 hover:bg-gray-50 text-sm flex items-center gap-2 border-b border-gray-50 last:border-0">
-                          <span className="font-mono text-xs text-blue-600 w-12 shrink-0">{v.code}</span>
-                          <span className="text-gray-700 truncate">{v.name}</span>
-                          <span className="ml-auto text-xs text-gray-400 shrink-0">{v.percentage}%</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                {selectedVat && (
-                  <p className="text-xs text-blue-600 mt-1.5 flex items-center gap-1">
-                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                    {selectedVat}
-                  </p>
-                )}
-              </div>
-
-              {/* Current status */}
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">Huidige status</label>
-                <div className="flex items-center gap-2 py-2">
-                  <StatusBadge status={invoice.bookkeepingStatus} />
-                  {invoice.category && <span className="text-xs text-gray-400">{invoice.category}</span>}
-                </div>
-                {invoice.vatType && (
-                  <p className="text-xs text-blue-500 mt-0.5">BTW: {invoice.vatType}</p>
-                )}
-              </div>
+              )}
             </div>
+
+            {/* Current status bar */}
+            <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-100">
+              <StatusBadge status={invoice.bookkeepingStatus} />
+              {invoice.category && <span className="text-xs text-gray-400">{invoice.category}</span>}
+              {invoice.vatType && <span className="text-xs text-blue-500">BTW: {invoice.vatType}</span>}
+            </div>
+
+            {/* ── INVOICE-LEVEL BOOKING ── */}
+            {bookingMode === "invoice" && (
+              <>
+                {/* Invoice lines (read-only) */}
+                <div className="mb-5 overflow-hidden rounded-lg border border-gray-100">
+                  <div className="hidden md:block overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead><tr className="text-left text-gray-500 border-b border-gray-100 bg-gray-50">
+                        <th className="px-4 py-2 font-medium">Omschrijving</th><th className="px-3 py-2 font-medium text-right">Aantal</th>
+                        <th className="px-3 py-2 font-medium text-right">Prijs</th><th className="px-3 py-2 font-medium text-right">BTW</th>
+                        <th className="px-3 py-2 font-medium text-right">Totaal</th>
+                      </tr></thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {invoice.items.map((item, i) => (
+                          <tr key={i}>
+                            <td className="px-4 py-2 text-gray-700">{item.description}</td>
+                            <td className="px-3 py-2 text-right text-gray-600">{item.quantity}</td>
+                            <td className="px-3 py-2 text-right text-gray-600">{formatCurrency(item.unitPrice)}</td>
+                            <td className="px-3 py-2 text-right text-gray-500">{item.vatRate}%</td>
+                            <td className="px-3 py-2 text-right font-medium">{formatCurrency(item.quantity * item.unitPrice)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {/* Mobile lines */}
+                  <div className="md:hidden divide-y divide-gray-50">
+                    {invoice.items.map((item, i) => (
+                      <div key={i} className="px-4 py-2.5">
+                        <p className="text-xs text-gray-700 font-medium">{item.description}</p>
+                        <div className="flex justify-between text-[11px] text-gray-500 mt-0.5">
+                          <span>{item.quantity} x {formatCurrency(item.unitPrice)} · {item.vatRate}%</span>
+                          <span className="font-medium text-gray-700">{formatCurrency(item.quantity * item.unitPrice)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="border-t border-gray-200 px-4 py-2.5 bg-gray-50">
+                    <div className="flex justify-between text-xs"><span className="text-gray-500">Subtotaal</span><span>{formatCurrency(invoice.subtotal)}</span></div>
+                    <div className="flex justify-between text-xs"><span className="text-gray-500">BTW</span><span>{formatCurrency(invoice.vatAmount)}</span></div>
+                    <div className="flex justify-between text-sm font-bold border-t border-gray-200 pt-1 mt-1"><span>Totaal</span><span>{formatCurrency(invoice.total)}</span></div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+                  {/* Ledger account */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Grootboekrekening</label>
+                    <div className="relative">
+                      <input type="text" value={ledgerSearch}
+                        onChange={(e) => { setLedgerSearch(e.target.value); setSelectedLedger(""); }}
+                        placeholder="Typ nummer of naam..."
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
+                      {ledgerSearch && !selectedLedger && filteredLedgerAccounts.length > 0 && (
+                        <div className="absolute z-50 w-72 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
+                          {filteredLedgerAccounts.slice(0, 15).map((a: LedgerAccountData) => (
+                            <button key={a.id} type="button"
+                              onClick={() => {
+                                setSelectedLedger(`${a.accountNumber} ${a.name}`);
+                                setLedgerSearch(`${a.accountNumber} - ${a.name}`);
+                                if (a.defaultVatCode && !selectedVat) {
+                                  setSelectedVat(`${a.defaultVatCode.code} ${a.defaultVatCode.name} ${a.defaultVatCode.percentage}%`);
+                                  setVatSearch(`${a.defaultVatCode.code} - ${a.defaultVatCode.name} (${a.defaultVatCode.percentage}%)`);
+                                }
+                              }}
+                              className="w-full text-left px-3 py-2.5 hover:bg-gray-50 text-sm flex items-center gap-2 border-b border-gray-50 last:border-0">
+                              <span className="font-mono text-xs text-gray-400 w-10 shrink-0">{a.accountNumber}</span>
+                              <span className="text-gray-700 truncate">{a.name}</span>
+                              {a.defaultVatCode && <span className="ml-auto text-[10px] text-gray-400 shrink-0">{a.defaultVatCode.code}</span>}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    {selectedLedger && <p className="text-xs text-emerald-600 mt-1.5 flex items-center gap-1"><svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>{selectedLedger}</p>}
+                  </div>
+                  {/* VAT code */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">BTW-code</label>
+                    <div className="relative">
+                      <input type="text" value={vatSearch}
+                        onChange={(e) => { setVatSearch(e.target.value); setSelectedVat(""); }}
+                        placeholder="Zoek BTW-code..."
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
+                      {vatSearch && !selectedVat && filteredVatCodes.length > 0 && (
+                        <div className="absolute z-50 w-64 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
+                          {filteredVatCodes.map((v) => (
+                            <button key={v.id} type="button"
+                              onClick={() => { setSelectedVat(`${v.code} ${v.name} ${v.percentage}%`); setVatSearch(`${v.code} - ${v.name} (${v.percentage}%)`); }}
+                              className="w-full text-left px-3 py-2.5 hover:bg-gray-50 text-sm flex items-center gap-2 border-b border-gray-50 last:border-0">
+                              <span className="font-mono text-xs text-blue-600 w-12 shrink-0">{v.code}</span>
+                              <span className="text-gray-700 truncate">{v.name}</span>
+                              <span className="ml-auto text-xs text-gray-400 shrink-0">{v.percentage}%</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    {selectedVat && <p className="text-xs text-blue-600 mt-1.5 flex items-center gap-1"><svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>{selectedVat}</p>}
+                  </div>
+                </div>
+
+                {/* Booking preview */}
+                {selectedLedger && canBook && (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-4 space-y-0.5">
+                    <p className="text-xs text-emerald-800"><span className="font-medium">{invoice.invoiceNumber}</span> wordt geboekt op <span className="font-medium">{selectedLedger}</span> · Bedrag: <span className="font-medium">{formatCurrency(invoice.total)}</span></p>
+                    {selectedVat && <p className="text-xs text-emerald-700">BTW-code: <span className="font-medium">{selectedVat}</span></p>}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* ── LINE-LEVEL BOOKING ── */}
+            {bookingMode === "line" && (
+              <>
+                <p className="text-xs text-gray-500 mb-3">Kies per factuurlijn een grootboekrekening en BTW-code.</p>
+
+                {/* Desktop: table with inline fields */}
+                <div className="hidden md:block mb-5 overflow-hidden rounded-lg border border-gray-100">
+                  <table className="w-full text-xs">
+                    <thead><tr className="text-left text-gray-500 border-b border-gray-100 bg-gray-50">
+                      <th className="px-4 py-2.5 font-medium">Omschrijving</th>
+                      <th className="px-3 py-2.5 font-medium text-right w-20">Bedrag</th>
+                      <th className="px-3 py-2.5 font-medium text-right w-14">BTW%</th>
+                      <th className="px-3 py-2.5 font-medium w-56">Grootboekrekening</th>
+                      <th className="px-3 py-2.5 font-medium w-44">BTW-code</th>
+                    </tr></thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {invoice.items.map((item) => {
+                        const lb = lineBookings[item.id] || { ledger: "", ledgerSearch: "", vatCode: "", vatSearch: "" };
+                        const lineLedgerResults = filterLedgerForLine(lb.ledgerSearch);
+                        const lineVatResults = filterVatForLine(lb.vatSearch);
+                        const lineTotal = item.quantity * item.unitPrice;
+                        return (
+                          <tr key={item.id} className="align-top">
+                            <td className="px-4 py-3">
+                              <p className="text-sm text-gray-800 font-medium">{item.description}</p>
+                              <p className="text-[11px] text-gray-400 mt-0.5">{item.quantity} x {formatCurrency(item.unitPrice)}</p>
+                            </td>
+                            <td className="px-3 py-3 text-right text-sm font-medium">{formatCurrency(lineTotal)}</td>
+                            <td className="px-3 py-3 text-right text-gray-500">{item.vatRate}%</td>
+                            <td className="px-3 py-3">
+                              <div className="relative">
+                                <input type="text" value={lb.ledgerSearch}
+                                  onChange={(e) => { updateLineLedger(item.id, "ledgerSearch", e.target.value); updateLineLedger(item.id, "ledger", ""); setActiveLineDrop(`ledger-${item.id}`); }}
+                                  onFocus={() => setActiveLineDrop(`ledger-${item.id}`)}
+                                  onBlur={() => setTimeout(() => setActiveLineDrop(null), 200)}
+                                  placeholder="Rekening..."
+                                  className={`w-full border rounded-md px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-[#00AFCB]/30 ${lb.ledger ? "border-emerald-300 bg-emerald-50" : "border-gray-200"}`} />
+                                {activeLineDrop === `ledger-${item.id}` && lb.ledgerSearch && !lb.ledger && lineLedgerResults.length > 0 && (
+                                  <div className="absolute z-50 w-72 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-40 overflow-y-auto">
+                                    {lineLedgerResults.slice(0, 12).map((a) => (
+                                      <button key={a.id} type="button" onMouseDown={(e) => e.preventDefault()}
+                                        onClick={() => {
+                                          updateLineLedger(item.id, "ledger", `${a.accountNumber} ${a.name}`);
+                                          updateLineLedger(item.id, "ledgerSearch", `${a.accountNumber} - ${a.name}`);
+                                          if (a.defaultVatCode && !lb.vatCode) {
+                                            updateLineLedger(item.id, "vatCode", `${a.defaultVatCode.code} ${a.defaultVatCode.name} ${a.defaultVatCode.percentage}%`);
+                                            updateLineLedger(item.id, "vatSearch", `${a.defaultVatCode.code} - ${a.defaultVatCode.name} (${a.defaultVatCode.percentage}%)`);
+                                          }
+                                          setActiveLineDrop(null);
+                                        }}
+                                        className="w-full text-left px-3 py-2 hover:bg-gray-50 text-xs flex items-center gap-2">
+                                        <span className="font-mono text-gray-400 w-10 shrink-0">{a.accountNumber}</span>
+                                        <span className="text-gray-700 truncate">{a.name}</span>
+                                        {a.defaultVatCode && <span className="ml-auto text-[10px] text-gray-400 shrink-0">{a.defaultVatCode.code}</span>}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-3 py-3">
+                              <div className="relative">
+                                <input type="text" value={lb.vatSearch}
+                                  onChange={(e) => { updateLineLedger(item.id, "vatSearch", e.target.value); updateLineLedger(item.id, "vatCode", ""); setActiveLineDrop(`vat-${item.id}`); }}
+                                  onFocus={() => setActiveLineDrop(`vat-${item.id}`)}
+                                  onBlur={() => setTimeout(() => setActiveLineDrop(null), 200)}
+                                  placeholder="BTW..."
+                                  className={`w-full border rounded-md px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-[#00AFCB]/30 ${lb.vatCode ? "border-blue-300 bg-blue-50" : "border-gray-200"}`} />
+                                {activeLineDrop === `vat-${item.id}` && lb.vatSearch && !lb.vatCode && lineVatResults.length > 0 && (
+                                  <div className="absolute z-50 w-60 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-40 overflow-y-auto">
+                                    {lineVatResults.map((v) => (
+                                      <button key={v.id} type="button" onMouseDown={(e) => e.preventDefault()}
+                                        onClick={() => {
+                                          updateLineLedger(item.id, "vatCode", `${v.code} ${v.name} ${v.percentage}%`);
+                                          updateLineLedger(item.id, "vatSearch", `${v.code} - ${v.name} (${v.percentage}%)`);
+                                          setActiveLineDrop(null);
+                                        }}
+                                        className="w-full text-left px-3 py-2 hover:bg-gray-50 text-xs flex items-center gap-2">
+                                        <span className="font-mono text-blue-600 w-12 shrink-0">{v.code}</span>
+                                        <span className="text-gray-700 truncate">{v.name}</span>
+                                        <span className="ml-auto text-gray-400 shrink-0">{v.percentage}%</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  <div className="border-t border-gray-200 px-4 py-2.5 bg-gray-50 flex justify-between text-sm font-bold">
+                    <span>Totaal</span><span>{formatCurrency(invoice.total)}</span>
+                  </div>
+                </div>
+
+                {/* Mobile: stacked cards with inline fields */}
+                <div className="md:hidden space-y-3 mb-5">
+                  {invoice.items.map((item) => {
+                    const lb = lineBookings[item.id] || { ledger: "", ledgerSearch: "", vatCode: "", vatSearch: "" };
+                    const lineLedgerResults = filterLedgerForLine(lb.ledgerSearch);
+                    const lineVatResults = filterVatForLine(lb.vatSearch);
+                    const lineTotal = item.quantity * item.unitPrice;
+                    return (
+                      <div key={item.id} className="border border-gray-100 rounded-xl p-4 space-y-3">
+                        <div className="flex justify-between items-start gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-gray-800">{item.description}</p>
+                            <p className="text-xs text-gray-500 mt-0.5">{item.quantity} x {formatCurrency(item.unitPrice)} · {item.vatRate}% BTW</p>
+                          </div>
+                          <p className="text-sm font-bold text-[#3C2C1E] shrink-0">{formatCurrency(lineTotal)}</p>
+                        </div>
+                        {/* Line ledger */}
+                        <div>
+                          <label className="block text-[10px] text-gray-500 uppercase tracking-wider mb-1">Grootboekrekening</label>
+                          <div className="relative">
+                            <input type="text" value={lb.ledgerSearch}
+                              onChange={(e) => { updateLineLedger(item.id, "ledgerSearch", e.target.value); updateLineLedger(item.id, "ledger", ""); setActiveLineDrop(`ledger-${item.id}`); }}
+                              onFocus={() => setActiveLineDrop(`ledger-${item.id}`)}
+                              onBlur={() => setTimeout(() => setActiveLineDrop(null), 200)}
+                              placeholder="Typ nummer of naam..."
+                              className={`w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#00AFCB]/30 ${lb.ledger ? "border-emerald-300 bg-emerald-50" : "border-gray-200"}`} />
+                            {activeLineDrop === `ledger-${item.id}` && lb.ledgerSearch && !lb.ledger && lineLedgerResults.length > 0 && (
+                              <div className="absolute z-50 w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-40 overflow-y-auto">
+                                {lineLedgerResults.slice(0, 10).map((a) => (
+                                  <button key={a.id} type="button" onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => {
+                                      updateLineLedger(item.id, "ledger", `${a.accountNumber} ${a.name}`);
+                                      updateLineLedger(item.id, "ledgerSearch", `${a.accountNumber} - ${a.name}`);
+                                      if (a.defaultVatCode && !lb.vatCode) {
+                                        updateLineLedger(item.id, "vatCode", `${a.defaultVatCode.code} ${a.defaultVatCode.name} ${a.defaultVatCode.percentage}%`);
+                                        updateLineLedger(item.id, "vatSearch", `${a.defaultVatCode.code} - ${a.defaultVatCode.name} (${a.defaultVatCode.percentage}%)`);
+                                      }
+                                      setActiveLineDrop(null);
+                                    }}
+                                    className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm flex items-center gap-2">
+                                    <span className="font-mono text-xs text-gray-400 w-10 shrink-0">{a.accountNumber}</span>
+                                    <span className="text-gray-700 truncate">{a.name}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        {/* Line VAT */}
+                        <div>
+                          <label className="block text-[10px] text-gray-500 uppercase tracking-wider mb-1">BTW-code</label>
+                          <div className="relative">
+                            <input type="text" value={lb.vatSearch}
+                              onChange={(e) => { updateLineLedger(item.id, "vatSearch", e.target.value); updateLineLedger(item.id, "vatCode", ""); setActiveLineDrop(`vat-${item.id}`); }}
+                              onFocus={() => setActiveLineDrop(`vat-${item.id}`)}
+                              onBlur={() => setTimeout(() => setActiveLineDrop(null), 200)}
+                              placeholder="Zoek BTW-code..."
+                              className={`w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#00AFCB]/30 ${lb.vatCode ? "border-blue-300 bg-blue-50" : "border-gray-200"}`} />
+                            {activeLineDrop === `vat-${item.id}` && lb.vatSearch && !lb.vatCode && lineVatResults.length > 0 && (
+                              <div className="absolute z-50 w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-40 overflow-y-auto">
+                                {lineVatResults.map((v) => (
+                                  <button key={v.id} type="button" onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => {
+                                      updateLineLedger(item.id, "vatCode", `${v.code} ${v.name} ${v.percentage}%`);
+                                      updateLineLedger(item.id, "vatSearch", `${v.code} - ${v.name} (${v.percentage}%)`);
+                                      setActiveLineDrop(null);
+                                    }}
+                                    className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm flex items-center gap-2">
+                                    <span className="font-mono text-xs text-blue-600 w-12 shrink-0">{v.code}</span>
+                                    <span className="text-gray-700 truncate">{v.name}</span>
+                                    <span className="ml-auto text-xs text-gray-400 shrink-0">{v.percentage}%</span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div className="border border-gray-200 rounded-lg px-4 py-2.5 bg-gray-50 flex justify-between text-sm font-bold">
+                    <span>Totaal</span><span>{formatCurrency(invoice.total)}</span>
+                  </div>
+                </div>
+
+                {/* Per-line booking overview */}
+                {allLinesFilled && canBook && (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-4">
+                    <p className="text-[10px] text-emerald-700 uppercase tracking-wider font-medium mb-2">Boekingsoverzicht per regel</p>
+                    <div className="space-y-1">
+                      {invoice.items.map((item) => {
+                        const lb = lineBookings[item.id];
+                        return (
+                          <div key={item.id} className="flex flex-col sm:flex-row sm:items-center gap-1 text-xs text-emerald-800 py-1 border-b border-emerald-200/50 last:border-0">
+                            <span className="font-medium min-w-0 truncate sm:w-1/4">{item.description}</span>
+                            <span className="text-emerald-600 sm:w-1/4 truncate">{lb?.ledger || "—"}</span>
+                            <span className="text-blue-600 sm:w-1/4 truncate">{lb?.vatCode || "—"}</span>
+                            <span className="font-medium sm:w-1/4 sm:text-right">{formatCurrency(item.quantity * item.unitPrice)}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
 
             {invoice.notes && (
               <div className="mb-4 p-3 bg-gray-50 rounded-lg"><p className="text-xs text-gray-500 mb-0.5">Opmerkingen</p><p className="text-sm">{invoice.notes}</p></div>
             )}
 
-            {/* Booking preview */}
-            {selectedLedger && (invoice.bookkeepingStatus === "pending" || invoice.bookkeepingStatus === "to_book" || invoice.bookkeepingStatus === "processing") && (
-              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-4 space-y-0.5">
-                <p className="text-xs text-emerald-800">
-                  <span className="font-medium">{invoice.invoiceNumber}</span> wordt geboekt op <span className="font-medium">{selectedLedger}</span> · Bedrag: <span className="font-medium">{formatCurrency(invoice.total)}</span>
-                </p>
-                {selectedVat && (
-                  <p className="text-xs text-emerald-700">BTW-code: <span className="font-medium">{selectedVat}</span></p>
-                )}
-              </div>
-            )}
-
             <div className="flex flex-wrap gap-2">
-              {(invoice.bookkeepingStatus === "pending" || invoice.bookkeepingStatus === "to_book" || invoice.bookkeepingStatus === "processing") && (
-                <button onClick={() => updateStatus("booked")} disabled={saving || !selectedLedger}
+              {canBook && (
+                <button onClick={() => updateStatus("booked")} disabled={saving || !allLinesFilled}
                   className="px-5 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors">
-                  {saving ? "Boeken..." : "Factuur boeken"}
+                  {saving ? "Boeken..." : bookingMode === "line" ? `${invoice.items.length} regels boeken` : "Factuur boeken"}
                 </button>
               )}
               {(invoice.bookkeepingStatus === "booked" || invoice.bookkeepingStatus === "processed") && (

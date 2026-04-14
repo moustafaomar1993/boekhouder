@@ -147,12 +147,14 @@ model InvoiceNote {
 }
 
 model InvoiceItem {
-  id          String @id @default(uuid())
+  id          String  @id @default(uuid())
   invoiceId   String
   description String
   quantity    Float
   unitPrice   Float
   vatRate     Float
+  category    String? // ledger account per line (e.g. "8000 Dienstverlening")
+  vatCode     String? // VAT code per line (e.g. "VH21 BTW hoog tarief 21%")
 
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 }

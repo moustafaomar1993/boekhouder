@@ -27,6 +27,23 @@ export async function PATCH(
     invoice = await updateInvoiceStatus(id, body.status);
   }
 
+  // Handle per-line bookings
+  if (body.lineBookings && Array.isArray(body.lineBookings)) {
+    for (const lb of body.lineBookings) {
+      if (lb.itemId) {
+        await prisma.invoiceItem.update({
+          where: { id: lb.itemId },
+          data: {
+            ...(lb.category !== undefined && { category: lb.category || null }),
+            ...(lb.vatCode !== undefined && { vatCode: lb.vatCode || null }),
+          },
+        });
+      }
+    }
+    // Re-fetch to include updated items
+    invoice = await prisma.invoice.findUnique({ where: { id }, include: { items: true } });
+  }
+
   if (!invoice) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(invoice);
 }

@@ -1394,12 +1394,24 @@ function BookkeeperContent() {
                                   </div>
                                 )}
 
+                                {/* Per-line booking hint for multi-line invoices */}
+                                {modalItems.length > 1 && (
+                                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                                    <p className="text-xs text-blue-800 mb-1.5">Deze factuur heeft <strong>{modalItems.length} regels</strong>. Wilt u per regel een andere rekening of BTW-code toewijzen?</p>
+                                    <Link href={`/bookkeeper/invoices/${bookModalInvoiceId}?from=verwerken`}
+                                      className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:text-blue-900">
+                                      Per regel boeken
+                                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                                    </Link>
+                                  </div>
+                                )}
+
                                 <div className="flex justify-end gap-2 pt-2">
                                   <button onClick={() => setBookModalInvoiceId(null)} className="px-4 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50">Annuleren</button>
                                   <button onClick={async () => { await handleBook(bookModalInvoiceId, bookModalLedger || undefined, bookModalVatCode || undefined); setBookModalInvoiceId(null); }}
                                     disabled={bookingLoading === bookModalInvoiceId || !bookModalLedger}
                                     className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
-                                    {bookingLoading === bookModalInvoiceId ? "Boeken..." : "Factuur boeken"}
+                                    {bookingLoading === bookModalInvoiceId ? "Boeken..." : "Hele factuur boeken"}
                                   </button>
                                 </div>
                               </div>
