@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, use, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import type { Invoice, User } from "@/lib/data";
 
@@ -38,9 +38,14 @@ interface CustomerData {
   address: string | null; vatNumber: string | null; city: string | null; postalCode: string | null;
 }
 
-export default function InvoiceReview({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+interface LedgerAccountData {
+  id: string; accountNumber: string; name: string; accountType: string; isActive: boolean;
+}
+
+function InvoiceReviewInner({ id }: { id: string }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const fromVerwerken = searchParams.get("from") === "verwerken";
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [clients, setClients] = useState<User[]>([]);
   const [category, setCategory] = useState("");
@@ -59,13 +64,22 @@ export default function InvoiceReview({ params }: { params: Promise<{ id: string
   const [showCreditModal, setShowCreditModal] = useState(false);
   const [creditLoading, setCreditLoading] = useState(false);
 
+  // Processing-focused state (Verwerken)
+  const [ledgerAccounts, setLedgerAccounts] = useState<LedgerAccountData[]>([]);
+  const [ledgerSearch, setLedgerSearch] = useState("");
+  const [selectedLedger, setSelectedLedger] = useState("");
+
   useEffect(() => {
     fetch(`/api/invoices/${id}`).then((r) => r.json()).then((inv) => {
       setInvoice(inv);
       setCategory(inv.category || "Omzet");
+      if (inv.category) { setSelectedLedger(inv.category); setLedgerSearch(inv.category); }
     });
     fetch("/api/clients").then((r) => r.json()).then(setClients);
-  }, [id]);
+    if (fromVerwerken) {
+      fetch("/api/ledger-accounts").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setLedgerAccounts(d); }).catch(() => {});
+    }
+  }, [id, fromVerwerken]);
 
   // Fetch customer details and related invoices for debtor management
   useEffect(() => {
@@ -98,9 +112,10 @@ export default function InvoiceReview({ params }: { params: Promise<{ id: string
 
   async function updateStatus(bookkeepingStatus: string) {
     setSaving(true);
+    const cat = fromVerwerken && selectedLedger ? selectedLedger : category;
     const res = await fetch(`/api/invoices/${id}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bookkeepingStatus, category }),
+      body: JSON.stringify({ bookkeepingStatus, category: cat }),
     });
     const updated = await res.json();
     setInvoice(updated);
@@ -159,6 +174,182 @@ export default function InvoiceReview({ params }: { params: Promise<{ id: string
     return diff;
   })();
 
+  // Searchable ledger helper
+  const filteredLedgerAccounts = (() => {
+    const active = ledgerAccounts.filter((a: LedgerAccountData) => a.isActive);
+    if (!ledgerSearch) return active.filter((a: LedgerAccountData) => a.accountType === "revenue");
+    const s = ledgerSearch.toLowerCase();
+    return active.filter((a: LedgerAccountData) => a.accountNumber.startsWith(ledgerSearch) || a.name.toLowerCase().includes(s) || a.accountNumber.includes(ledgerSearch));
+  })();
+
+  // ═══ PROCESSING-FOCUSED VIEW (from Verwerken) ═══
+  if (fromVerwerken) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <header className="bg-white border-b border-gray-200">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center h-16">
+              <Link href="/bookkeeper?section=verkoop" className="text-[#00AFCB] hover:text-[#004854] text-sm font-medium flex items-center gap-1">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                Terug naar Verwerken
+              </Link>
+              <div className="flex items-center gap-2">
+                <StatusBadge status={invoice.bookkeepingStatus} />
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
+          {/* Duplicate warnings */}
+          {duplicateWarnings.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+              <div className="flex items-start gap-3">
+                <svg className="w-5 h-5 text-amber-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.268 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+                <div>
+                  <p className="text-sm font-semibold text-amber-800">Mogelijke duplicaat / controle</p>
+                  {duplicateWarnings.map((w, i) => <p key={i} className="text-sm text-amber-700 mt-0.5">{w}</p>)}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Invoice header (processing-focused, no debtor actions) */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 sm:p-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold text-[#3C2C1E]">{invoice.invoiceNumber}</h1>
+                <p className="text-sm text-gray-500 mt-1">Klant: <strong>{client?.company || invoice.clientId}</strong> · Debiteur: <strong>{invoice.customerName}</strong></p>
+                {invoice.isCredit && <span className="inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">Creditfactuur</span>}
+              </div>
+              <div className="text-left sm:text-right">
+                <p className="text-2xl sm:text-3xl font-bold text-[#3C2C1E]">{formatCurrency(invoice.total)}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Invoice details grid */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+            <h2 className="text-sm font-semibold text-[#3C2C1E] mb-3">Factuurgegevens</h2>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+              <div><p className="text-gray-500 text-xs">Factuurdatum</p><p className="font-medium">{formatDate(invoice.date)}</p></div>
+              <div><p className="text-gray-500 text-xs">Vervaldatum</p><p className="font-medium">{formatDate(invoice.dueDate)}</p></div>
+              <div><p className="text-gray-500 text-xs">Debiteur</p><p className="font-medium">{invoice.customerName}</p></div>
+              <div><p className="text-gray-500 text-xs">Adres</p><p className="font-medium text-xs">{invoice.customerAddress}</p></div>
+            </div>
+          </div>
+
+          {/* Invoice lines */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="px-5 py-3 border-b border-gray-100"><h2 className="text-sm font-semibold text-[#3C2C1E]">Factuurregels</h2></div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead><tr className="text-left text-xs text-gray-500 border-b border-gray-100 bg-gray-50">
+                  <th className="px-5 py-2.5 font-medium">Omschrijving</th><th className="px-3 py-2.5 font-medium text-right">Aantal</th>
+                  <th className="px-3 py-2.5 font-medium text-right">Prijs</th><th className="px-3 py-2.5 font-medium text-right">BTW</th>
+                  <th className="px-3 py-2.5 font-medium text-right">Totaal</th>
+                </tr></thead>
+                <tbody className="divide-y divide-gray-50">
+                  {invoice.items.map((item, i) => (
+                    <tr key={i}>
+                      <td className="px-5 py-3 text-sm">{item.description}</td>
+                      <td className="px-3 py-3 text-sm text-right">{item.quantity}</td>
+                      <td className="px-3 py-3 text-sm text-right">{formatCurrency(item.unitPrice)}</td>
+                      <td className="px-3 py-3 text-sm text-right text-gray-500">{item.vatRate}%</td>
+                      <td className="px-3 py-3 text-sm text-right font-medium">{formatCurrency(item.quantity * item.unitPrice)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="border-t border-gray-200 p-5">
+              <div className="w-56 ml-auto space-y-1.5">
+                <div className="flex justify-between text-sm"><span className="text-gray-500">Subtotaal</span><span>{formatCurrency(invoice.subtotal)}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-gray-500">BTW</span><span>{formatCurrency(invoice.vatAmount)}</span></div>
+                <div className="flex justify-between text-base font-bold border-t border-gray-200 pt-1.5"><span>Totaal</span><span>{formatCurrency(invoice.total)}</span></div>
+              </div>
+            </div>
+          </div>
+
+          {/* ══ BOOKKEEPING PROCESSING (prominent) ══ */}
+          <div className="bg-white rounded-xl shadow-sm border-2 border-[#00AFCB]/20 p-5 sm:p-6">
+            <h2 className="text-base font-semibold text-[#3C2C1E] mb-4 flex items-center gap-2">
+              <svg className="w-5 h-5 text-[#00AFCB]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+              Boekhouding verwerking
+            </h2>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+              {/* Searchable ledger account */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Grootboekrekening</label>
+                <div className="relative">
+                  <input type="text" value={ledgerSearch}
+                    onChange={(e) => { setLedgerSearch(e.target.value); setSelectedLedger(""); }}
+                    placeholder="Typ rekeningnummer of naam..."
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
+                  {ledgerSearch && !selectedLedger && filteredLedgerAccounts.length > 0 && (
+                    <div className="absolute z-50 w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
+                      {filteredLedgerAccounts.slice(0, 15).map((a: LedgerAccountData) => (
+                        <button key={a.id} type="button"
+                          onClick={() => { setSelectedLedger(`${a.accountNumber} ${a.name}`); setLedgerSearch(`${a.accountNumber} - ${a.name}`); }}
+                          className="w-full text-left px-3 py-2.5 hover:bg-gray-50 text-sm flex items-center gap-2 border-b border-gray-50 last:border-0">
+                          <span className="font-mono text-xs text-gray-400 w-10 shrink-0">{a.accountNumber}</span>
+                          <span className="text-gray-700 truncate">{a.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {selectedLedger && (
+                  <p className="text-xs text-emerald-600 mt-1.5 flex items-center gap-1">
+                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                    {selectedLedger}
+                  </p>
+                )}
+              </div>
+
+              {/* Current status */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Huidige status</label>
+                <div className="flex items-center gap-2 py-2">
+                  <StatusBadge status={invoice.bookkeepingStatus} />
+                  {invoice.category && <span className="text-xs text-gray-400">{invoice.category}</span>}
+                </div>
+              </div>
+            </div>
+
+            {invoice.notes && (
+              <div className="mb-4 p-3 bg-gray-50 rounded-lg"><p className="text-xs text-gray-500 mb-0.5">Opmerkingen</p><p className="text-sm">{invoice.notes}</p></div>
+            )}
+
+            {/* Booking preview */}
+            {selectedLedger && (invoice.bookkeepingStatus === "pending" || invoice.bookkeepingStatus === "to_book" || invoice.bookkeepingStatus === "processing") && (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-4">
+                <p className="text-xs text-emerald-800">
+                  <span className="font-medium">{invoice.invoiceNumber}</span> wordt geboekt op <span className="font-medium">{selectedLedger}</span> · Bedrag: <span className="font-medium">{formatCurrency(invoice.total)}</span>
+                </p>
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              {(invoice.bookkeepingStatus === "pending" || invoice.bookkeepingStatus === "to_book" || invoice.bookkeepingStatus === "processing") && (
+                <button onClick={() => updateStatus("booked")} disabled={saving || !selectedLedger}
+                  className="px-5 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+                  {saving ? "Boeken..." : "Factuur boeken"}
+                </button>
+              )}
+              {(invoice.bookkeepingStatus === "booked" || invoice.bookkeepingStatus === "processed") && (
+                <button onClick={() => updateStatus("to_book")} disabled={saving} className="px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50">Heropenen</button>
+              )}
+              <button onClick={() => router.push("/bookkeeper?section=verkoop")} className="px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50">Terug naar overzicht</button>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // ═══ DEBTOR MANAGEMENT VIEW (from Debiteurenbeheer) ═══
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b border-gray-200">
@@ -455,4 +646,9 @@ export default function InvoiceReview({ params }: { params: Promise<{ id: string
       )}
     </div>
   );
+}
+
+export default function InvoiceReview({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
+  return <Suspense><InvoiceReviewInner id={id} /></Suspense>;
 }

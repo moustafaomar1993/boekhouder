@@ -72,6 +72,13 @@ function BookkeeperContent() {
   const [bulkMessage, setBulkMessage] = useState("");
   const [facturatieClient, setFacturatieClient] = useState("");
   const [debiteurenSort, setDebiteurenSort] = useState<{ key: string; dir: "asc" | "desc" }>({ key: "dueDate", dir: "asc" });
+  const [verwerkenClient, setVerwerkenClient] = useState("");
+  const [bookModalInvoiceId, setBookModalInvoiceId] = useState<string | null>(null);
+  const [bookModalLedger, setBookModalLedger] = useState("");
+  const [bookModalSearch, setBookModalSearch] = useState("");
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false);
+  const [bulkLedgerSearch, setBulkLedgerSearch] = useState("");
+  const [showBulkLedgerDrop, setShowBulkLedgerDrop] = useState(false);
 
   // Inkoop state
   interface PurchaseDoc {
@@ -196,16 +203,16 @@ function BookkeeperContent() {
     fetch("/api/vat-codes").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setVatCodes(d); }).catch(() => {});
   }, []);
 
-  async function handleBook(invoiceId: string) {
+  async function handleBook(invoiceId: string, category?: string) {
     setBookingLoading(invoiceId);
     try {
       const res = await fetch(`/api/invoices/${invoiceId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bookkeepingStatus: "booked" }),
+        body: JSON.stringify({ bookkeepingStatus: "booked", ...(category && { category }) }),
       });
       if (res.ok) {
-        setInvoices((prev) => prev.map((inv) => inv.id === invoiceId ? { ...inv, bookkeepingStatus: "booked" } : inv));
+        setInvoices((prev) => prev.map((inv) => inv.id === invoiceId ? { ...inv, bookkeepingStatus: "booked", ...(category && { category }) } : inv));
       }
     } catch { /* */ }
     finally { setBookingLoading(null); }
@@ -668,43 +675,7 @@ function BookkeeperContent() {
 
       {/* ═══ VERKOOP ═══ */}
       {section === "verkoop" && (() => {
-        const verwerkenFiltered = invoices.filter((inv) => {
-          if (filter !== "all" && inv.bookkeepingStatus !== filter) return false;
-          if (clientFilter !== "all" && inv.clientId !== clientFilter) return false;
-          return true;
-        });
-        const allFilteredIds = verwerkenFiltered.filter((inv) => inv.bookkeepingStatus === "pending" || inv.bookkeepingStatus === "to_book" || inv.bookkeepingStatus === "processing").map((inv) => inv.id);
-        const allSelected = allFilteredIds.length > 0 && allFilteredIds.every((id) => selectedSalesIds.has(id));
-        function toggleSalesSelect(id: string) { setSelectedSalesIds((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; }); }
-        function toggleAllSales() {
-          if (allSelected) setSelectedSalesIds(new Set());
-          else setSelectedSalesIds(new Set(allFilteredIds));
-        }
-        async function handleBulkBook() {
-          if (selectedSalesIds.size === 0 || !bulkLedgerAccount) return;
-          setBulkBookingLoading(true); setBulkMessage("");
-          try {
-            const res = await fetch("/api/invoices/batch-book", {
-              method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ invoiceIds: [...selectedSalesIds], bookkeepingStatus: "booked", category: bulkLedgerAccount }),
-            });
-            const data = await res.json();
-            if (res.ok) {
-              setBulkMessage(data.message);
-              setInvoices((prev) => prev.map((inv) => selectedSalesIds.has(inv.id) ? { ...inv, bookkeepingStatus: "booked", category: bulkLedgerAccount } : inv));
-              setSelectedSalesIds(new Set());
-              setTimeout(() => setBulkMessage(""), 4000);
-            }
-          } catch { setBulkMessage("Er ging iets mis"); }
-          finally { setBulkBookingLoading(false); }
-        }
-
-        // Facturatie: get clients with their customers and permission status
         const facturatieClients = clients.filter((c) => c.role === "client");
-        const facturatieInvoices = facturatieClient ? invoices.filter((inv) => inv.clientId === facturatieClient) : [];
-
-        // Revenue accounts for bulk booking
-        const revenueAccounts = ledgerAccounts.filter((a) => a.accountType === "revenue" && a.isActive);
 
         return (
           <div className="space-y-6">
@@ -896,148 +867,427 @@ function BookkeeperContent() {
             })()}
 
             {/* ─── VERWERKEN TAB ─── */}
-            {verkoopTab === "verwerken" && (
-              <div className="space-y-4">
-                {/* Filters */}
-                <div className="flex flex-col sm:flex-row flex-wrap gap-3 sm:items-center">
+            {verkoopTab === "verwerken" && (() => {
+              // Build client-level data for customer tiles
+              const clientInvoiceMap = new Map<string, Invoice[]>();
+              invoices.forEach((inv) => { const arr = clientInvoiceMap.get(inv.clientId) || []; arr.push(inv); clientInvoiceMap.set(inv.clientId, arr); });
+
+              const clientTiles = clients
+                .filter((c) => c.role === "client" && clientInvoiceMap.has(c.id))
+                .map((c) => {
+                  const invs = clientInvoiceMap.get(c.id) || [];
+                  const openCount = invs.filter((i) => i.bookkeepingStatus === "pending" || i.bookkeepingStatus === "to_book").length;
+                  const bookedCt = invs.filter((i) => i.bookkeepingStatus === "booked" || i.bookkeepingStatus === "processed").length;
+                  const progress = invs.length > 0 ? Math.round((bookedCt / invs.length) * 100) : 100;
+                  const amount = invs.reduce((s, i) => s + i.total, 0);
+                  return { id: c.id, name: c.company || c.name, total: invs.length, open: openCount, booked: bookedCt, progress, amount };
+                })
+                .sort((a, b) => b.open - a.open || a.name.localeCompare(b.name));
+
+              const vTotalOpen = clientTiles.reduce((s, c) => s + c.open, 0);
+              const vTotalBooked = clientTiles.reduce((s, c) => s + c.booked, 0);
+              const vTotalAll = clientTiles.reduce((s, c) => s + c.total, 0);
+              const vOverallProgress = vTotalAll > 0 ? Math.round((vTotalBooked / vTotalAll) * 100) : 100;
+
+              // Searchable ledger accounts
+              const allActiveAccounts = ledgerAccounts.filter((a) => a.isActive);
+              function filterLedger(search: string) {
+                if (!search) return allActiveAccounts.filter((a) => a.accountType === "revenue");
+                const s = search.toLowerCase();
+                return allActiveAccounts.filter((a) => a.accountNumber.startsWith(search) || a.name.toLowerCase().includes(s) || a.accountNumber.includes(search));
+              }
+
+              // ── CUSTOMER OVERVIEW (no client selected) ──
+              if (!verwerkenClient) {
+                return (
+                  <div className="space-y-5">
+                    {/* Summary */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                        <p className="text-xs text-gray-500">Totaal facturen</p>
+                        <p className="text-xl font-bold text-[#004854]">{vTotalAll}</p>
+                      </div>
+                      <div className={`rounded-xl p-4 shadow-sm border ${vTotalOpen > 0 ? "bg-blue-50 border-blue-200" : "bg-white border-gray-100"}`}>
+                        <p className={`text-xs ${vTotalOpen > 0 ? "text-blue-700 font-medium" : "text-gray-500"}`}>Open / te verwerken</p>
+                        <p className={`text-xl font-bold ${vTotalOpen > 0 ? "text-blue-600" : "text-gray-400"}`}>{vTotalOpen}</p>
+                      </div>
+                      <div className="bg-emerald-50 rounded-xl p-4 shadow-sm border border-emerald-200">
+                        <p className="text-xs text-emerald-700 font-medium">Geboekt</p>
+                        <p className="text-xl font-bold text-emerald-600">{vTotalBooked}</p>
+                      </div>
+                      <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                        <p className="text-xs text-gray-500">Voortgang</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <div className="flex-1 bg-gray-100 rounded-full h-2.5">
+                            <div className="bg-emerald-500 h-2.5 rounded-full transition-all" style={{ width: `${vOverallProgress}%` }} />
+                          </div>
+                          <span className="text-sm font-bold text-[#004854]">{vOverallProgress}%</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Client tiles */}
+                    <div>
+                      <h2 className="text-sm font-semibold text-gray-700 mb-3">Klanten / Relaties</h2>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {clientTiles.map((c) => (
+                          <button key={c.id} onClick={() => { setVerwerkenClient(c.id); setFilter("all"); setSelectedSalesIds(new Set()); setBulkLedgerSearch(""); setBulkLedgerAccount(""); }}
+                            className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 text-left hover:border-[#00AFCB]/40 hover:shadow-md transition-all group">
+                            <div className="flex items-start justify-between">
+                              <div className="min-w-0 flex-1">
+                                <h3 className="font-semibold text-[#3C2C1E] group-hover:text-[#00AFCB] transition-colors truncate">{c.name}</h3>
+                                <p className="text-xs text-gray-400 mt-0.5">{c.total} facturen · {formatCurrency(c.amount)}</p>
+                              </div>
+                              {c.open > 0 && (
+                                <span className="ml-2 min-w-[24px] h-6 flex items-center justify-center rounded-full bg-blue-500 text-white text-xs font-bold px-1.5">{c.open}</span>
+                              )}
+                            </div>
+                            <div className="mt-3">
+                              <div className="flex justify-between text-[11px] text-gray-500 mb-1">
+                                <span>{c.booked} van {c.total} verwerkt</span>
+                                <span className="font-medium">{c.progress}%</span>
+                              </div>
+                              <div className="w-full bg-gray-100 rounded-full h-2">
+                                <div className={`h-2 rounded-full transition-all ${c.progress === 100 ? "bg-emerald-500" : c.progress > 50 ? "bg-emerald-400" : "bg-[#00AFCB]"}`} style={{ width: `${c.progress}%` }} />
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3 mt-3 text-[11px]">
+                              {c.open > 0 && <span className="text-blue-600 font-medium">{c.open} open</span>}
+                              {c.booked > 0 && <span className="text-emerald-600">{c.booked} geboekt</span>}
+                              {c.progress === 100 && (
+                                <span className="flex items-center gap-1 text-emerald-600 font-medium">
+                                  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                                  Volledig verwerkt
+                                </span>
+                              )}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                      {clientTiles.length === 0 && (
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-4 py-12 text-center">
+                          <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                          <p className="text-sm text-gray-500">Geen klanten met facturen gevonden.</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+
+              // ── FILTERED PER-CUSTOMER VIEW ──
+              const tile = clientTiles.find((c) => c.id === verwerkenClient);
+              if (!tile) { setVerwerkenClient(""); return null; }
+
+              const clientInvs = (clientInvoiceMap.get(verwerkenClient) || []).filter((inv) => {
+                if (filter !== "all" && inv.bookkeepingStatus !== filter) return false;
+                return true;
+              });
+              const bookableIds = clientInvs.filter((inv) => inv.bookkeepingStatus === "pending" || inv.bookkeepingStatus === "to_book" || inv.bookkeepingStatus === "processing").map((inv) => inv.id);
+              const allSel = bookableIds.length > 0 && bookableIds.every((id) => selectedSalesIds.has(id));
+              function toggleOne(id: string) { setSelectedSalesIds((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; }); }
+              function toggleAll() { if (allSel) setSelectedSalesIds(new Set()); else setSelectedSalesIds(new Set(bookableIds)); }
+
+              async function doBulkBook() {
+                if (selectedSalesIds.size === 0 || !bulkLedgerAccount) return;
+                setBulkBookingLoading(true); setBulkMessage("");
+                try {
+                  const res = await fetch("/api/invoices/batch-book", {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ invoiceIds: [...selectedSalesIds], bookkeepingStatus: "booked", category: bulkLedgerAccount }),
+                  });
+                  const data = await res.json();
+                  if (res.ok) {
+                    setBulkMessage(data.message);
+                    setInvoices((prev) => prev.map((inv) => selectedSalesIds.has(inv.id) ? { ...inv, bookkeepingStatus: "booked", category: bulkLedgerAccount } : inv));
+                    setSelectedSalesIds(new Set()); setBulkLedgerSearch(""); setBulkLedgerAccount("");
+                    setTimeout(() => setBulkMessage(""), 4000);
+                  }
+                } catch { setBulkMessage("Er ging iets mis"); }
+                finally { setBulkBookingLoading(false); }
+              }
+
+              const bulkFilteredAccounts = filterLedger(bulkLedgerSearch);
+
+              return (
+                <div className="space-y-4">
+                  {/* Back + header */}
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <button onClick={() => { setVerwerkenClient(""); setSelectedSalesIds(new Set()); setFilter("all"); setBulkLedgerSearch(""); setBulkLedgerAccount(""); }}
+                      className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 transition-colors shrink-0">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <h2 className="text-lg font-semibold text-[#3C2C1E] truncate">{tile.name}</h2>
+                      <p className="text-xs text-gray-500">{tile.open} open · {tile.booked} geboekt · {tile.total} totaal</p>
+                    </div>
+                    <div className="hidden sm:flex items-center gap-2 shrink-0">
+                      <div className="w-28 bg-gray-100 rounded-full h-2">
+                        <div className="bg-emerald-500 h-2 rounded-full transition-all" style={{ width: `${tile.progress}%` }} />
+                      </div>
+                      <span className="text-xs font-semibold text-[#004854]">{tile.progress}%</span>
+                    </div>
+                  </div>
+
+                  {/* Status filters */}
                   <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-full sm:w-auto overflow-x-auto">
-                    {["all", "to_book", "pending", "booked", "processed"].map((f) => (
+                    {(["all", "to_book", "pending", "booked", "processed"] as const).map((f) => (
                       <button key={f} onClick={() => setFilter(f)}
-                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${filter === f ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${filter === f ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
                         {{ all: "Alles", to_book: "Te boeken", pending: "In afwachting", booked: "Geboekt", processed: "Verwerkt" }[f]}
                       </button>
                     ))}
                   </div>
-                  <select value={clientFilter} onChange={(e) => setClientFilter(e.target.value)}
-                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none">
-                    <option value="all">Alle klanten</option>
-                    {clients.map((c) => <option key={c.id} value={c.id}>{c.company}</option>)}
-                  </select>
-                  <span className="text-sm text-gray-500 sm:ml-auto">Totale omzet: <strong>{formatCurrency(totalRevenue)}</strong></span>
-                </div>
 
-                {/* Bulk action bar */}
-                {selectedSalesIds.size > 0 && (
-                  <div className="bg-[#004854] rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                    <span className="text-sm text-white font-medium">{selectedSalesIds.size} facturen geselecteerd</span>
-                    <div className="flex flex-wrap gap-2 items-center sm:ml-auto">
-                      <select value={bulkLedgerAccount} onChange={(e) => setBulkLedgerAccount(e.target.value)}
-                        className="border border-white/20 bg-white/10 text-white rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none min-w-[180px]">
-                        <option value="">Selecteer rekening...</option>
-                        {revenueAccounts.map((a) => <option key={a.id} value={`${a.accountNumber} ${a.name}`}>{a.accountNumber} - {a.name}</option>)}
-                      </select>
-                      <button onClick={handleBulkBook} disabled={bulkBookingLoading || !bulkLedgerAccount}
-                        className="px-4 py-2 bg-emerald-500 text-white rounded-lg text-sm font-medium hover:bg-emerald-600 disabled:opacity-50 transition-colors">
-                        {bulkBookingLoading ? "Verwerken..." : "Bulk boeken"}
-                      </button>
-                      <button onClick={() => setSelectedSalesIds(new Set())} className="px-3 py-2 text-white/70 hover:text-white text-sm">Deselecteren</button>
+                  {/* Bulk action bar */}
+                  {selectedSalesIds.size > 0 && (
+                    <div className="bg-[#004854] rounded-xl p-4 space-y-3">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                        <span className="text-sm text-white font-medium">{selectedSalesIds.size} facturen geselecteerd</span>
+                        <div className="flex flex-wrap gap-2 items-center sm:ml-auto">
+                          <div className="relative min-w-[200px]">
+                            <input type="text" value={bulkLedgerSearch}
+                              onChange={(e) => { setBulkLedgerSearch(e.target.value); setBulkLedgerAccount(""); setShowBulkLedgerDrop(true); }}
+                              onFocus={() => setShowBulkLedgerDrop(true)}
+                              onBlur={() => setTimeout(() => setShowBulkLedgerDrop(false), 200)}
+                              placeholder="Zoek rekening (nr/naam)..."
+                              className="w-full border border-white/20 bg-white/10 text-white placeholder-white/40 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#00AFCB]/50 outline-none" />
+                            {showBulkLedgerDrop && bulkFilteredAccounts.length > 0 && (
+                              <div className="absolute z-50 w-72 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
+                                {bulkFilteredAccounts.slice(0, 15).map((a) => (
+                                  <button key={a.id} type="button"
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => { setBulkLedgerAccount(`${a.accountNumber} ${a.name}`); setBulkLedgerSearch(`${a.accountNumber} - ${a.name}`); setShowBulkLedgerDrop(false); }}
+                                    className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm flex items-center gap-2">
+                                    <span className="font-mono text-xs text-gray-400 w-10 shrink-0">{a.accountNumber}</span>
+                                    <span className="text-gray-700 truncate">{a.name}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          {bulkLedgerAccount ? (
+                            <button onClick={() => setShowBulkConfirm(true)}
+                              className="px-4 py-2 bg-emerald-500 text-white rounded-lg text-sm font-medium hover:bg-emerald-600 transition-colors whitespace-nowrap">
+                              Boek {selectedSalesIds.size} facturen
+                            </button>
+                          ) : (
+                            <span className="text-xs text-white/50 whitespace-nowrap">Selecteer een rekening</span>
+                          )}
+                          <button onClick={() => { setSelectedSalesIds(new Set()); setBulkLedgerAccount(""); setBulkLedgerSearch(""); }} className="px-3 py-2 text-white/70 hover:text-white text-sm whitespace-nowrap">Annuleren</button>
+                        </div>
+                      </div>
+                      {bulkLedgerAccount && (
+                        <div className="bg-white/10 rounded-lg px-3 py-2 text-xs text-white/80">
+                          <span className="font-medium">{selectedSalesIds.size} facturen</span> &rarr; <span className="font-medium">{bulkLedgerAccount}</span>
+                          &nbsp;· Totaal: <span className="font-medium">{formatCurrency([...selectedSalesIds].reduce((s, id) => { const inv = invoices.find((i) => i.id === id); return s + (inv?.total || 0); }, 0))}</span>
+                        </div>
+                      )}
                     </div>
+                  )}
+                  {bulkMessage && <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-2 text-sm text-emerald-700">{bulkMessage}</div>}
+
+                  {/* Desktop table */}
+                  <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="text-left text-[11px] text-gray-500 border-b border-gray-100 bg-gray-50">
+                          <th className="px-3 py-3 w-10"><input type="checkbox" checked={allSel} onChange={toggleAll} className="rounded border-gray-300" /></th>
+                          <th className="px-3 py-3 font-medium">Factuurnr.</th>
+                          <th className="px-3 py-3 font-medium">Debiteur</th>
+                          <th className="px-3 py-3 font-medium">Datum</th>
+                          <th className="px-3 py-3 font-medium text-right">Excl. BTW</th>
+                          <th className="px-3 py-3 font-medium text-right">BTW</th>
+                          <th className="px-3 py-3 font-medium text-right">Incl. BTW</th>
+                          <th className="px-3 py-3 font-medium">Status</th>
+                          <th className="px-3 py-3 font-medium">Rekening</th>
+                          <th className="px-3 py-3 font-medium text-right">Actie</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {clientInvs.map((inv) => {
+                          const isSel = selectedSalesIds.has(inv.id);
+                          const canSelect = inv.bookkeepingStatus === "pending" || inv.bookkeepingStatus === "to_book" || inv.bookkeepingStatus === "processing";
+                          return (
+                            <tr key={inv.id} className={`hover:bg-gray-50 ${isSel ? "bg-[#00AFCB]/5" : ""}`}>
+                              <td className="px-3 py-3"><input type="checkbox" checked={isSel} disabled={!canSelect} onChange={() => toggleOne(inv.id)} className="rounded border-gray-300 disabled:opacity-30" /></td>
+                              <td className="px-3 py-3 font-medium text-sm">{inv.invoiceNumber}{inv.isCredit && <span className="ml-1 text-[10px] text-red-500">(credit)</span>}</td>
+                              <td className="px-3 py-3 text-sm text-gray-600">{inv.customerName}</td>
+                              <td className="px-3 py-3 text-sm text-gray-600">{formatDate(inv.date)}</td>
+                              <td className="px-3 py-3 text-sm text-right">{formatCurrency(inv.subtotal)}</td>
+                              <td className="px-3 py-3 text-sm text-right text-gray-500">{formatCurrency(inv.vatAmount)}</td>
+                              <td className="px-3 py-3 text-sm text-right font-semibold">{formatCurrency(inv.total)}</td>
+                              <td className="px-3 py-3"><StatusBadge status={inv.bookkeepingStatus} /></td>
+                              <td className="px-3 py-3 text-xs text-gray-500 max-w-[120px] truncate">{inv.category || <span className="text-gray-300">&mdash;</span>}</td>
+                              <td className="px-3 py-3 text-right">
+                                <div className="flex gap-2 justify-end">
+                                  {canSelect && (
+                                    <button onClick={() => { setBookModalInvoiceId(inv.id); setBookModalSearch(""); setBookModalLedger(""); }}
+                                      className="text-xs px-3 py-1.5 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700">Boeken</button>
+                                  )}
+                                  {(inv.bookkeepingStatus === "booked" || inv.bookkeepingStatus === "processed") && (
+                                    <button onClick={() => handleUnbook(inv.id)} disabled={bookingLoading === inv.id}
+                                      className="text-xs px-3 py-1.5 border border-gray-300 text-gray-600 rounded-lg font-medium hover:bg-gray-50 disabled:opacity-50">
+                                      {bookingLoading === inv.id ? "..." : "Heropenen"}
+                                    </button>
+                                  )}
+                                  <Link href={`/bookkeeper/invoices/${inv.id}?from=verwerken`} className="text-sm text-[#00AFCB] hover:text-[#004854] font-medium py-1">Bekijken</Link>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {clientInvs.length === 0 && <tr><td colSpan={10} className="px-5 py-12 text-center text-gray-400">Geen facturen gevonden.</td></tr>}
+                      </tbody>
+                    </table>
                   </div>
-                )}
-                {bulkMessage && <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-2 text-sm text-emerald-700">{bulkMessage}</div>}
 
-                {/* Desktop table with checkboxes */}
-                <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="text-left text-sm text-gray-500 border-b border-gray-100 bg-gray-50">
-                        <th className="px-3 py-3 w-10"><input type="checkbox" checked={allSelected} onChange={toggleAllSales} className="rounded border-gray-300" /></th>
-                        <th className="px-3 py-3 font-medium">Factuurnr.</th>
-                        <th className="px-3 py-3 font-medium">Klant</th>
-                        <th className="px-3 py-3 font-medium">Debiteur</th>
-                        <th className="px-3 py-3 font-medium">Datum</th>
-                        <th className="px-3 py-3 font-medium text-right">Excl. BTW</th>
-                        <th className="px-3 py-3 font-medium text-right">BTW</th>
-                        <th className="px-3 py-3 font-medium text-right">Incl. BTW</th>
-                        <th className="px-3 py-3 font-medium">Status</th>
-                        <th className="px-3 py-3 font-medium text-right">Actie</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-50">
-                      {verwerkenFiltered.map((inv) => {
-                        const isSelected = selectedSalesIds.has(inv.id);
-                        const canSelect = inv.bookkeepingStatus === "pending" || inv.bookkeepingStatus === "to_book" || inv.bookkeepingStatus === "processing";
-                        return (
-                          <tr key={inv.id} className={`hover:bg-gray-50 ${isSelected ? "bg-[#00AFCB]/5" : ""}`}>
-                            <td className="px-3 py-3"><input type="checkbox" checked={isSelected} disabled={!canSelect} onChange={() => toggleSalesSelect(inv.id)} className="rounded border-gray-300 disabled:opacity-30" /></td>
-                            <td className="px-3 py-3 font-medium text-sm">{inv.invoiceNumber}</td>
-                            <td className="px-3 py-3 text-sm text-gray-600">{getClientName(inv.clientId)}</td>
-                            <td className="px-3 py-3 text-sm text-gray-600">{inv.customerName}</td>
-                            <td className="px-3 py-3 text-sm text-gray-600">{formatDate(inv.date)}</td>
-                            <td className="px-3 py-3 text-sm text-right">{formatCurrency(inv.subtotal)}</td>
-                            <td className="px-3 py-3 text-sm text-right text-gray-500">{formatCurrency(inv.vatAmount)}</td>
-                            <td className="px-3 py-3 text-sm text-right font-semibold">{formatCurrency(inv.total)}</td>
-                            <td className="px-3 py-3"><StatusBadge status={inv.bookkeepingStatus} /></td>
-                            <td className="px-3 py-3 text-right">
-                              <div className="flex gap-2 justify-end">
-                                {canSelect && (
-                                  <button onClick={() => handleBook(inv.id)} disabled={bookingLoading === inv.id}
-                                    className="text-xs px-3 py-1.5 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 disabled:opacity-50">
-                                    {bookingLoading === inv.id ? "..." : "Boeken"}
-                                  </button>
-                                )}
-                                {(inv.bookkeepingStatus === "booked" || inv.bookkeepingStatus === "processed") && (
-                                  <button onClick={() => handleUnbook(inv.id)} disabled={bookingLoading === inv.id}
-                                    className="text-xs px-3 py-1.5 border border-gray-300 text-gray-600 rounded-lg font-medium hover:bg-gray-50 disabled:opacity-50">
-                                    {bookingLoading === inv.id ? "..." : "Heropenen"}
-                                  </button>
-                                )}
-                                <Link href={`/bookkeeper/invoices/${inv.id}`} className="text-sm text-[#00AFCB] hover:text-[#004854] font-medium py-1">Bekijken</Link>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                      {verwerkenFiltered.length === 0 && <tr><td colSpan={10} className="px-5 py-12 text-center text-gray-400">Geen facturen gevonden.</td></tr>}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Mobile cards with checkboxes */}
-                <div className="md:hidden space-y-3">
-                  {verwerkenFiltered.map((inv) => {
-                    const isSelected = selectedSalesIds.has(inv.id);
-                    const canSelect = inv.bookkeepingStatus === "pending" || inv.bookkeepingStatus === "to_book" || inv.bookkeepingStatus === "processing";
-                    return (
-                      <div key={inv.id} className={`bg-white rounded-xl shadow-sm border p-4 ${isSelected ? "border-[#00AFCB] bg-[#00AFCB]/5" : "border-gray-100"}`}>
-                        <div className="flex items-start gap-3">
-                          <input type="checkbox" checked={isSelected} disabled={!canSelect} onChange={() => toggleSalesSelect(inv.id)} className="mt-1 rounded border-gray-300 disabled:opacity-30" />
-                          <Link href={`/bookkeeper/invoices/${inv.id}`} className="block flex-1 min-w-0">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="text-sm font-medium text-[#004854]">{inv.invoiceNumber}</p>
-                                <p className="text-sm text-gray-900 mt-0.5">{inv.customerName}</p>
-                                <p className="text-xs text-gray-500 mt-0.5">{getClientName(inv.clientId)} &middot; {formatDate(inv.date)}</p>
-                              </div>
-                              <div className="text-right shrink-0">
-                                <p className="font-semibold text-sm">{formatCurrency(inv.total)}</p>
-                                <p className="text-xs text-gray-500">{formatCurrency(inv.subtotal)} + {formatCurrency(inv.vatAmount)}</p>
-                                <div className="mt-1"><StatusBadge status={inv.bookkeepingStatus} /></div>
+                  {/* Mobile cards */}
+                  <div className="md:hidden space-y-3">
+                    {clientInvs.map((inv) => {
+                      const isSel = selectedSalesIds.has(inv.id);
+                      const canSelect = inv.bookkeepingStatus === "pending" || inv.bookkeepingStatus === "to_book" || inv.bookkeepingStatus === "processing";
+                      return (
+                        <div key={inv.id} className={`bg-white rounded-xl shadow-sm border p-4 ${isSel ? "border-[#00AFCB] bg-[#00AFCB]/5" : "border-gray-100"}`}>
+                          <div className="flex items-start gap-3">
+                            <input type="checkbox" checked={isSel} disabled={!canSelect} onChange={() => toggleOne(inv.id)} className="mt-1 rounded border-gray-300 disabled:opacity-30" />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium text-[#004854]">{inv.invoiceNumber}</p>
+                                  <p className="text-sm text-gray-900 mt-0.5">{inv.customerName}</p>
+                                  <p className="text-xs text-gray-500 mt-0.5">{formatDate(inv.date)}</p>
+                                  {inv.category && <p className="text-[10px] text-gray-400 mt-0.5">{inv.category}</p>}
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <p className="font-semibold text-sm">{formatCurrency(inv.total)}</p>
+                                  <p className="text-xs text-gray-500">{formatCurrency(inv.subtotal)} + {formatCurrency(inv.vatAmount)}</p>
+                                  <div className="mt-1"><StatusBadge status={inv.bookkeepingStatus} /></div>
+                                </div>
                               </div>
                             </div>
-                          </Link>
+                          </div>
+                          <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-100 ml-7">
+                            {canSelect && (
+                              <button onClick={() => { setBookModalInvoiceId(inv.id); setBookModalSearch(""); setBookModalLedger(""); }}
+                                className="text-xs px-3 py-1.5 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700">Boeken</button>
+                            )}
+                            {(inv.bookkeepingStatus === "booked" || inv.bookkeepingStatus === "processed") && (
+                              <button onClick={() => handleUnbook(inv.id)} disabled={bookingLoading === inv.id}
+                                className="text-xs px-3 py-1.5 border border-gray-300 text-gray-600 rounded-lg font-medium hover:bg-gray-50 disabled:opacity-50">
+                                {bookingLoading === inv.id ? "..." : "Heropenen"}
+                              </button>
+                            )}
+                            <Link href={`/bookkeeper/invoices/${inv.id}?from=verwerken`} className="text-xs px-3 py-1.5 text-[#00AFCB] hover:text-[#004854] font-medium">Bekijken</Link>
+                          </div>
                         </div>
-                        <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100 ml-7">
-                          {canSelect && (
-                            <button onClick={() => handleBook(inv.id)} disabled={bookingLoading === inv.id}
-                              className="text-xs px-3 py-1.5 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 disabled:opacity-50">
-                              {bookingLoading === inv.id ? "..." : "Boeken"}
-                            </button>
-                          )}
-                          {(inv.bookkeepingStatus === "booked" || inv.bookkeepingStatus === "processed") && (
-                            <button onClick={() => handleUnbook(inv.id)} disabled={bookingLoading === inv.id}
-                              className="text-xs px-3 py-1.5 border border-gray-300 text-gray-600 rounded-lg font-medium hover:bg-gray-50 disabled:opacity-50">
-                              {bookingLoading === inv.id ? "..." : "Heropenen"}
-                            </button>
-                          )}
+                      );
+                    })}
+                    {clientInvs.length === 0 && <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-4 py-12 text-center text-gray-400">Geen facturen gevonden.</div>}
+                  </div>
+
+                  {/* Individual booking modal */}
+                  {bookModalInvoiceId && (() => {
+                    const modalInv = invoices.find((i) => i.id === bookModalInvoiceId);
+                    if (!modalInv) return null;
+                    const mAccounts = filterLedger(bookModalSearch);
+                    return (
+                      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setBookModalInvoiceId(null)}>
+                        <div className="bg-white rounded-xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+                          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                            <h3 className="text-base font-semibold text-[#3C2C1E]">Factuur boeken</h3>
+                            <button onClick={() => setBookModalInvoiceId(null)} className="p-1 hover:bg-gray-100 rounded-lg"><svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+                          </div>
+                          <div className="p-6 space-y-4">
+                            <div className="bg-gray-50 rounded-lg p-3 space-y-1.5">
+                              <div className="flex justify-between text-sm"><span className="text-gray-500">Factuur</span><span className="font-medium">{modalInv.invoiceNumber}</span></div>
+                              <div className="flex justify-between text-sm"><span className="text-gray-500">Debiteur</span><span>{modalInv.customerName}</span></div>
+                              <div className="flex justify-between text-sm"><span className="text-gray-500">Bedrag</span><span className="font-semibold">{formatCurrency(modalInv.total)}</span></div>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1.5">Grootboekrekening</label>
+                              <div className="relative">
+                                <input type="text" value={bookModalSearch}
+                                  onChange={(e) => { setBookModalSearch(e.target.value); setBookModalLedger(""); }}
+                                  placeholder="Typ rekeningnummer of naam..."
+                                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" autoFocus />
+                                {bookModalSearch && !bookModalLedger && mAccounts.length > 0 && (
+                                  <div className="absolute z-50 w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
+                                    {mAccounts.slice(0, 15).map((a) => (
+                                      <button key={a.id} type="button"
+                                        onClick={() => { setBookModalLedger(`${a.accountNumber} ${a.name}`); setBookModalSearch(`${a.accountNumber} - ${a.name}`); }}
+                                        className="w-full text-left px-3 py-2.5 hover:bg-gray-50 text-sm flex items-center gap-2 border-b border-gray-50 last:border-0">
+                                        <span className="font-mono text-xs text-gray-400 w-10 shrink-0">{a.accountNumber}</span>
+                                        <span className="text-gray-700 truncate">{a.name}</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                              {bookModalLedger && (
+                                <p className="text-xs text-emerald-600 mt-1.5 flex items-center gap-1">
+                                  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                                  {bookModalLedger}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex justify-end gap-2 pt-2">
+                              <button onClick={() => setBookModalInvoiceId(null)} className="px-4 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50">Annuleren</button>
+                              <button onClick={async () => { await handleBook(bookModalInvoiceId, bookModalLedger || undefined); setBookModalInvoiceId(null); }}
+                                disabled={bookingLoading === bookModalInvoiceId || !bookModalLedger}
+                                className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
+                                {bookingLoading === bookModalInvoiceId ? "Boeken..." : "Factuur boeken"}
+                              </button>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     );
-                  })}
-                  {verwerkenFiltered.length === 0 && <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-4 py-12 text-center text-gray-400">Geen facturen gevonden.</div>}
+                  })()}
+
+                  {/* Bulk booking confirmation modal */}
+                  {showBulkConfirm && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowBulkConfirm(false)}>
+                      <div className="bg-white rounded-xl max-w-lg w-full" onClick={(e) => e.stopPropagation()}>
+                        <div className="px-6 py-4 border-b border-gray-100">
+                          <h3 className="text-base font-semibold text-[#3C2C1E]">Boeking bevestigen</h3>
+                        </div>
+                        <div className="p-6 space-y-4">
+                          <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                            <div className="flex justify-between text-sm"><span className="text-gray-500">Aantal facturen</span><span className="font-bold">{selectedSalesIds.size}</span></div>
+                            <div className="flex justify-between text-sm"><span className="text-gray-500">Grootboekrekening</span><span className="font-medium">{bulkLedgerAccount}</span></div>
+                            <div className="flex justify-between text-sm border-t border-gray-200 pt-2 mt-2">
+                              <span className="text-gray-500">Totaalbedrag</span>
+                              <span className="font-bold text-lg">{formatCurrency([...selectedSalesIds].reduce((s, id) => { const inv = invoices.find((i) => i.id === id); return s + (inv?.total || 0); }, 0))}</span>
+                            </div>
+                          </div>
+                          <div className="max-h-40 overflow-y-auto space-y-1">
+                            {[...selectedSalesIds].map((sid) => {
+                              const inv = invoices.find((i) => i.id === sid);
+                              return inv ? (
+                                <div key={sid} className="flex justify-between text-xs px-2 py-1.5 bg-gray-50 rounded">
+                                  <span className="font-medium">{inv.invoiceNumber}</span>
+                                  <span className="text-gray-500 truncate mx-2">{inv.customerName}</span>
+                                  <span className="font-medium shrink-0">{formatCurrency(inv.total)}</span>
+                                </div>
+                              ) : null;
+                            })}
+                          </div>
+                          <div className="flex justify-end gap-2 pt-2">
+                            <button onClick={() => setShowBulkConfirm(false)} className="px-4 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50">Annuleren</button>
+                            <button onClick={async () => { setShowBulkConfirm(false); await doBulkBook(); }}
+                              disabled={bulkBookingLoading}
+                              className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
+                              {bulkBookingLoading ? "Verwerken..." : `Boek ${selectedSalesIds.size} facturen`}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         );
       })()}
