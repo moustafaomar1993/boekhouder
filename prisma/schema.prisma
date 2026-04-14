@@ -82,6 +82,8 @@ model Customer {
   // Bookkeeping defaults (for future automation)
   defaultVatCode       String?  // high, low, zero, exempt, reversed
   defaultRevenueAccount String?  // e.g. "8000" for omzet
+  // Accountant access permission
+  accountantAccess     Boolean  @default(false) // customer grants accountant access to facturation
   // KVK data
   kvkNumber        String?
   legalForm        String?

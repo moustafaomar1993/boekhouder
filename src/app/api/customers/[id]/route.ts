@@ -25,7 +25,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!customer) return Response.json({ error: "Klant niet gevonden" }, { status: 404 });
 
   const body = await request.json();
-  const { name, email, phone, address, vatNumber, paymentTermValue, paymentTermUnit, defaultDescription, defaultUnitPrice, defaultVatRate, kvkNumber, legalForm, sbiCode, sbiDescription, city, postalCode } = body;
+  const { name, email, phone, address, vatNumber, paymentTermValue, paymentTermUnit, defaultDescription, defaultUnitPrice, defaultVatRate, kvkNumber, legalForm, sbiCode, sbiDescription, city, postalCode, accountantAccess } = body;
 
   if (name !== undefined && (!name || !name.trim())) {
     return Response.json({ error: "Naam is verplicht" }, { status: 400 });
@@ -50,6 +50,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       ...(sbiDescription !== undefined && { sbiDescription: sbiDescription?.trim() || null }),
       ...(city !== undefined && { city: city?.trim() || null }),
       ...(postalCode !== undefined && { postalCode: postalCode?.trim() || null }),
+      ...(accountantAccess !== undefined && { accountantAccess }),
     },
   });
 

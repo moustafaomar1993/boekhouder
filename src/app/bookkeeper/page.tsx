@@ -64,6 +64,14 @@ function BookkeeperContent() {
   const [clientFilter, setClientFilter] = useState<string>("all");
   const [bookingLoading, setBookingLoading] = useState<string | null>(null);
 
+  // Verkoop sub-tab state
+  const [verkoopTab, setVerkoopTab] = useState<"facturatie" | "verwerken">("verwerken");
+  const [selectedSalesIds, setSelectedSalesIds] = useState<Set<string>>(new Set());
+  const [bulkLedgerAccount, setBulkLedgerAccount] = useState("");
+  const [bulkBookingLoading, setBulkBookingLoading] = useState(false);
+  const [bulkMessage, setBulkMessage] = useState("");
+  const [facturatieClient, setFacturatieClient] = useState("");
+
   // Inkoop state
   interface PurchaseDoc {
     id: string; userId: string; fileName: string; fileUrl: string; fileType: string; fileSize: number;
@@ -657,118 +665,308 @@ function BookkeeperContent() {
         </div>
       )}
 
-      {/* ═══ VERKOOP (existing invoice table) ═══ */}
-      {section === "verkoop" && (
-        <div className="space-y-6">
-          <h1 className="text-xl sm:text-2xl font-bold text-[#3C2C1E]">Verkoop</h1>
+      {/* ═══ VERKOOP ═══ */}
+      {section === "verkoop" && (() => {
+        const verwerkenFiltered = invoices.filter((inv) => {
+          if (filter !== "all" && inv.bookkeepingStatus !== filter) return false;
+          if (clientFilter !== "all" && inv.clientId !== clientFilter) return false;
+          return true;
+        });
+        const allFilteredIds = verwerkenFiltered.filter((inv) => inv.bookkeepingStatus === "pending" || inv.bookkeepingStatus === "to_book" || inv.bookkeepingStatus === "processing").map((inv) => inv.id);
+        const allSelected = allFilteredIds.length > 0 && allFilteredIds.every((id) => selectedSalesIds.has(id));
+        function toggleSalesSelect(id: string) { setSelectedSalesIds((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; }); }
+        function toggleAllSales() {
+          if (allSelected) setSelectedSalesIds(new Set());
+          else setSelectedSalesIds(new Set(allFilteredIds));
+        }
+        async function handleBulkBook() {
+          if (selectedSalesIds.size === 0 || !bulkLedgerAccount) return;
+          setBulkBookingLoading(true); setBulkMessage("");
+          try {
+            const res = await fetch("/api/invoices/batch-book", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ invoiceIds: [...selectedSalesIds], bookkeepingStatus: "booked", category: bulkLedgerAccount }),
+            });
+            const data = await res.json();
+            if (res.ok) {
+              setBulkMessage(data.message);
+              setInvoices((prev) => prev.map((inv) => selectedSalesIds.has(inv.id) ? { ...inv, bookkeepingStatus: "booked", category: bulkLedgerAccount } : inv));
+              setSelectedSalesIds(new Set());
+              setTimeout(() => setBulkMessage(""), 4000);
+            }
+          } catch { setBulkMessage("Er ging iets mis"); }
+          finally { setBulkBookingLoading(false); }
+        }
 
-          {/* Filters */}
-          <div className="flex flex-col sm:flex-row flex-wrap gap-3 sm:items-center">
-            <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-full sm:w-auto overflow-x-auto">
-              {["all", "to_book", "pending", "booked", "processed"].map((f) => (
-                <button key={f} onClick={() => setFilter(f)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${filter === f ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
-                  {{ all: "Alles", to_book: "Te boeken", pending: "In afwachting", booked: "Geboekt", processed: "Verwerkt" }[f]}
-                </button>
-              ))}
+        // Facturatie: get clients with their customers and permission status
+        const facturatieClients = clients.filter((c) => c.role === "client");
+        const facturatieInvoices = facturatieClient ? invoices.filter((inv) => inv.clientId === facturatieClient) : [];
+
+        // Revenue accounts for bulk booking
+        const revenueAccounts = ledgerAccounts.filter((a) => a.accountType === "revenue" && a.isActive);
+
+        return (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold text-[#3C2C1E]">Verkoop</h1>
+                <p className="text-sm text-[#6F5C4B]/70 mt-1">Facturatie-ondersteuning en boekingsverwerking</p>
+              </div>
             </div>
-            <select value={clientFilter} onChange={(e) => setClientFilter(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none">
-              <option value="all">Alle klanten</option>
-              {clients.map((c) => <option key={c.id} value={c.id}>{c.company}</option>)}
-            </select>
-            <span className="text-sm text-gray-500 sm:ml-auto">Totale omzet: <strong>{formatCurrency(totalRevenue)}</strong></span>
-          </div>
 
-          {/* Desktop table */}
-          <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="text-left text-sm text-gray-500 border-b border-gray-100 bg-gray-50">
-                  <th className="px-5 py-3 font-medium">Factuurnr.</th>
-                  <th className="px-5 py-3 font-medium">Klant</th>
-                  <th className="px-5 py-3 font-medium">Debiteur</th>
-                  <th className="px-5 py-3 font-medium">Datum</th>
-                  <th className="px-5 py-3 font-medium">Status</th>
-                  <th className="px-5 py-3 font-medium">Boekhouding</th>
-                  <th className="px-5 py-3 font-medium text-right">Bedrag</th>
-                  <th className="px-5 py-3 font-medium text-right">Actie</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {filtered.map((inv) => (
-                  <tr key={inv.id} className="hover:bg-gray-50">
-                    <td className="px-5 py-4 font-medium">{inv.invoiceNumber}</td>
-                    <td className="px-5 py-4 text-gray-600 text-sm">{getClientName(inv.clientId)}</td>
-                    <td className="px-5 py-4 text-gray-600">{inv.customerName}</td>
-                    <td className="px-5 py-4 text-gray-600">{formatDate(inv.date)}</td>
-                    <td className="px-5 py-4"><StatusBadge status={inv.status} /></td>
-                    <td className="px-5 py-4"><StatusBadge status={inv.bookkeepingStatus} /></td>
-                    <td className="px-5 py-4 text-right font-semibold">{formatCurrency(inv.total)}</td>
-                    <td className="px-5 py-4 text-right">
-                      <div className="flex gap-2 justify-end">
-                        {(inv.bookkeepingStatus === "pending" || inv.bookkeepingStatus === "to_book" || inv.bookkeepingStatus === "processing") && (
-                          <button onClick={() => handleBook(inv.id)} disabled={bookingLoading === inv.id}
-                            className="text-xs px-3 py-1.5 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 disabled:opacity-50">
-                            {bookingLoading === inv.id ? "..." : "Boeken"}
-                          </button>
-                        )}
-                        {(inv.bookkeepingStatus === "booked" || inv.bookkeepingStatus === "processed") && (
-                          <button onClick={() => handleUnbook(inv.id)} disabled={bookingLoading === inv.id}
-                            className="text-xs px-3 py-1.5 border border-gray-300 text-gray-600 rounded-lg font-medium hover:bg-gray-50 disabled:opacity-50">
-                            {bookingLoading === inv.id ? "..." : "Heropenen"}
-                          </button>
-                        )}
-                        <Link href={`/bookkeeper/invoices/${inv.id}`} className="text-sm text-[#00AFCB] hover:text-[#004854] font-medium py-1">Bekijken</Link>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {filtered.length === 0 && (
-                  <tr><td colSpan={8} className="px-5 py-12 text-center text-gray-400">Geen facturen gevonden.</td></tr>
+            {/* Sub-tab switcher */}
+            <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
+              <button onClick={() => setVerkoopTab("facturatie")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${verkoopTab === "facturatie" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>Facturatie</button>
+              <button onClick={() => setVerkoopTab("verwerken")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${verkoopTab === "verwerken" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>Verwerken</button>
+            </div>
+
+            {/* ─── FACTURATIE TAB ─── */}
+            {verkoopTab === "facturatie" && (
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+                  <select value={facturatieClient} onChange={(e) => setFacturatieClient(e.target.value)}
+                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none min-w-[200px]">
+                    <option value="">Selecteer een klant...</option>
+                    {facturatieClients.map((c) => <option key={c.id} value={c.id}>{c.company || c.name}</option>)}
+                  </select>
+                </div>
+
+                {!facturatieClient && (
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
+                    <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                    <p className="text-sm text-gray-500">Selecteer een klant om de facturatie-omgeving te openen.</p>
+                    <p className="text-xs text-gray-400 mt-1">Je kunt facturen inzien en ondersteunen wanneer de klant toegang heeft verleend.</p>
+                  </div>
                 )}
-              </tbody>
-            </table>
-          </div>
 
-          {/* Mobile cards */}
-          <div className="md:hidden space-y-3">
-            {filtered.map((inv) => (
-              <div key={inv.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-                <Link href={`/bookkeeper/invoices/${inv.id}`} className="block">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-[#004854]">{inv.invoiceNumber}</p>
-                      <p className="text-sm text-gray-900 mt-0.5">{inv.customerName}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{getClientName(inv.clientId)} &middot; {formatDate(inv.date)}</p>
+                {facturatieClient && (
+                  <div className="space-y-4">
+                    {/* Permission notice */}
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex items-start gap-3">
+                      <svg className="w-5 h-5 text-blue-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      <div>
+                        <p className="text-sm font-medium text-blue-800">Facturatie-inzage voor {facturatieClients.find((c) => c.id === facturatieClient)?.company || "klant"}</p>
+                        <p className="text-xs text-blue-600 mt-0.5">Je bekijkt de facturen van deze klant. Wijzigingen worden direct op de originele factuurgegevens toegepast.</p>
+                      </div>
                     </div>
-                    <div className="text-right flex-shrink-0">
-                      <p className="font-semibold text-sm">{formatCurrency(inv.total)}</p>
-                      <div className="mt-1"><StatusBadge status={inv.bookkeepingStatus} /></div>
+
+                    {/* Summary cards */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                        <p className="text-xs text-gray-500">Totaal</p>
+                        <p className="text-lg font-bold text-[#004854]">{facturatieInvoices.length}</p>
+                      </div>
+                      <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                        <p className="text-xs text-gray-500">Openstaand</p>
+                        <p className="text-lg font-bold text-amber-600">{facturatieInvoices.filter((i) => i.status === "sent" || i.status === "overdue").length}</p>
+                      </div>
+                      <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                        <p className="text-xs text-gray-500">Betaald</p>
+                        <p className="text-lg font-bold text-emerald-600">{facturatieInvoices.filter((i) => i.status === "paid").length}</p>
+                      </div>
+                      <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                        <p className="text-xs text-gray-500">Omzet</p>
+                        <p className="text-lg font-bold text-[#004854]">{formatCurrency(facturatieInvoices.reduce((s, i) => s + i.subtotal, 0))}</p>
+                      </div>
+                    </div>
+
+                    {/* Invoice list */}
+                    <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
+                      <table className="w-full">
+                        <thead><tr className="text-left text-sm text-gray-500 border-b border-gray-100 bg-gray-50">
+                          <th className="px-5 py-3 font-medium">Factuurnr.</th><th className="px-5 py-3 font-medium">Debiteur</th>
+                          <th className="px-5 py-3 font-medium">Datum</th><th className="px-5 py-3 font-medium">Vervaldatum</th>
+                          <th className="px-5 py-3 font-medium">Status</th><th className="px-5 py-3 font-medium text-right">Bedrag</th>
+                          <th className="px-5 py-3 font-medium text-right">Actie</th>
+                        </tr></thead>
+                        <tbody className="divide-y divide-gray-50">
+                          {facturatieInvoices.map((inv) => (
+                            <tr key={inv.id} className="hover:bg-gray-50">
+                              <td className="px-5 py-4 font-medium text-sm">{inv.invoiceNumber}</td>
+                              <td className="px-5 py-4 text-sm text-gray-600">{inv.customerName}</td>
+                              <td className="px-5 py-4 text-sm text-gray-600">{formatDate(inv.date)}</td>
+                              <td className="px-5 py-4 text-sm text-gray-600">{formatDate(inv.dueDate)}</td>
+                              <td className="px-5 py-4"><StatusBadge status={inv.status} /></td>
+                              <td className="px-5 py-4 text-right font-semibold text-sm">{formatCurrency(inv.total)}</td>
+                              <td className="px-5 py-4 text-right">
+                                <Link href={`/bookkeeper/invoices/${inv.id}`} className="text-sm text-[#00AFCB] hover:text-[#004854] font-medium">Bekijken</Link>
+                              </td>
+                            </tr>
+                          ))}
+                          {facturatieInvoices.length === 0 && <tr><td colSpan={7} className="px-5 py-12 text-center text-gray-400">Geen facturen voor deze klant.</td></tr>}
+                        </tbody>
+                      </table>
+                    </div>
+                    {/* Mobile cards */}
+                    <div className="md:hidden space-y-3">
+                      {facturatieInvoices.map((inv) => (
+                        <Link key={inv.id} href={`/bookkeeper/invoices/${inv.id}`} className="block bg-white rounded-xl shadow-sm border border-gray-100 p-4 hover:border-[#00AFCB]/30">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-[#004854]">{inv.invoiceNumber}</p>
+                              <p className="text-sm text-gray-900 mt-0.5">{inv.customerName}</p>
+                              <p className="text-xs text-gray-500 mt-0.5">{formatDate(inv.date)} &middot; vervalt {formatDate(inv.dueDate)}</p>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <p className="font-semibold text-sm">{formatCurrency(inv.total)}</p>
+                              <div className="mt-1"><StatusBadge status={inv.status} /></div>
+                            </div>
+                          </div>
+                        </Link>
+                      ))}
+                      {facturatieInvoices.length === 0 && <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-4 py-12 text-center text-gray-400">Geen facturen voor deze klant.</div>}
                     </div>
                   </div>
-                </Link>
-                <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
-                  {(inv.bookkeepingStatus === "pending" || inv.bookkeepingStatus === "to_book" || inv.bookkeepingStatus === "processing") && (
-                    <button onClick={() => handleBook(inv.id)} disabled={bookingLoading === inv.id}
-                      className="text-xs px-3 py-1.5 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 disabled:opacity-50">
-                      {bookingLoading === inv.id ? "..." : "Boeken"}
-                    </button>
-                  )}
-                  {(inv.bookkeepingStatus === "booked" || inv.bookkeepingStatus === "processed") && (
-                    <button onClick={() => handleUnbook(inv.id)} disabled={bookingLoading === inv.id}
-                      className="text-xs px-3 py-1.5 border border-gray-300 text-gray-600 rounded-lg font-medium hover:bg-gray-50 disabled:opacity-50">
-                      {bookingLoading === inv.id ? "..." : "Heropenen"}
-                    </button>
-                  )}
-                  <Link href={`/bookkeeper/invoices/${inv.id}`} className="text-xs text-[#00AFCB] hover:text-[#004854] font-medium py-1.5 ml-auto">Bekijken</Link>
+                )}
+              </div>
+            )}
+
+            {/* ─── VERWERKEN TAB ─── */}
+            {verkoopTab === "verwerken" && (
+              <div className="space-y-4">
+                {/* Filters */}
+                <div className="flex flex-col sm:flex-row flex-wrap gap-3 sm:items-center">
+                  <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-full sm:w-auto overflow-x-auto">
+                    {["all", "to_book", "pending", "booked", "processed"].map((f) => (
+                      <button key={f} onClick={() => setFilter(f)}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${filter === f ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+                        {{ all: "Alles", to_book: "Te boeken", pending: "In afwachting", booked: "Geboekt", processed: "Verwerkt" }[f]}
+                      </button>
+                    ))}
+                  </div>
+                  <select value={clientFilter} onChange={(e) => setClientFilter(e.target.value)}
+                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none">
+                    <option value="all">Alle klanten</option>
+                    {clients.map((c) => <option key={c.id} value={c.id}>{c.company}</option>)}
+                  </select>
+                  <span className="text-sm text-gray-500 sm:ml-auto">Totale omzet: <strong>{formatCurrency(totalRevenue)}</strong></span>
+                </div>
+
+                {/* Bulk action bar */}
+                {selectedSalesIds.size > 0 && (
+                  <div className="bg-[#004854] rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                    <span className="text-sm text-white font-medium">{selectedSalesIds.size} facturen geselecteerd</span>
+                    <div className="flex flex-wrap gap-2 items-center sm:ml-auto">
+                      <select value={bulkLedgerAccount} onChange={(e) => setBulkLedgerAccount(e.target.value)}
+                        className="border border-white/20 bg-white/10 text-white rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none min-w-[180px]">
+                        <option value="">Selecteer rekening...</option>
+                        {revenueAccounts.map((a) => <option key={a.id} value={`${a.accountNumber} ${a.name}`}>{a.accountNumber} - {a.name}</option>)}
+                      </select>
+                      <button onClick={handleBulkBook} disabled={bulkBookingLoading || !bulkLedgerAccount}
+                        className="px-4 py-2 bg-emerald-500 text-white rounded-lg text-sm font-medium hover:bg-emerald-600 disabled:opacity-50 transition-colors">
+                        {bulkBookingLoading ? "Verwerken..." : "Bulk boeken"}
+                      </button>
+                      <button onClick={() => setSelectedSalesIds(new Set())} className="px-3 py-2 text-white/70 hover:text-white text-sm">Deselecteren</button>
+                    </div>
+                  </div>
+                )}
+                {bulkMessage && <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-2 text-sm text-emerald-700">{bulkMessage}</div>}
+
+                {/* Desktop table with checkboxes */}
+                <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="text-left text-sm text-gray-500 border-b border-gray-100 bg-gray-50">
+                        <th className="px-3 py-3 w-10"><input type="checkbox" checked={allSelected} onChange={toggleAllSales} className="rounded border-gray-300" /></th>
+                        <th className="px-3 py-3 font-medium">Factuurnr.</th>
+                        <th className="px-3 py-3 font-medium">Klant</th>
+                        <th className="px-3 py-3 font-medium">Debiteur</th>
+                        <th className="px-3 py-3 font-medium">Datum</th>
+                        <th className="px-3 py-3 font-medium text-right">Excl. BTW</th>
+                        <th className="px-3 py-3 font-medium text-right">BTW</th>
+                        <th className="px-3 py-3 font-medium text-right">Incl. BTW</th>
+                        <th className="px-3 py-3 font-medium">Status</th>
+                        <th className="px-3 py-3 font-medium text-right">Actie</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {verwerkenFiltered.map((inv) => {
+                        const isSelected = selectedSalesIds.has(inv.id);
+                        const canSelect = inv.bookkeepingStatus === "pending" || inv.bookkeepingStatus === "to_book" || inv.bookkeepingStatus === "processing";
+                        return (
+                          <tr key={inv.id} className={`hover:bg-gray-50 ${isSelected ? "bg-[#00AFCB]/5" : ""}`}>
+                            <td className="px-3 py-3"><input type="checkbox" checked={isSelected} disabled={!canSelect} onChange={() => toggleSalesSelect(inv.id)} className="rounded border-gray-300 disabled:opacity-30" /></td>
+                            <td className="px-3 py-3 font-medium text-sm">{inv.invoiceNumber}</td>
+                            <td className="px-3 py-3 text-sm text-gray-600">{getClientName(inv.clientId)}</td>
+                            <td className="px-3 py-3 text-sm text-gray-600">{inv.customerName}</td>
+                            <td className="px-3 py-3 text-sm text-gray-600">{formatDate(inv.date)}</td>
+                            <td className="px-3 py-3 text-sm text-right">{formatCurrency(inv.subtotal)}</td>
+                            <td className="px-3 py-3 text-sm text-right text-gray-500">{formatCurrency(inv.vatAmount)}</td>
+                            <td className="px-3 py-3 text-sm text-right font-semibold">{formatCurrency(inv.total)}</td>
+                            <td className="px-3 py-3"><StatusBadge status={inv.bookkeepingStatus} /></td>
+                            <td className="px-3 py-3 text-right">
+                              <div className="flex gap-2 justify-end">
+                                {canSelect && (
+                                  <button onClick={() => handleBook(inv.id)} disabled={bookingLoading === inv.id}
+                                    className="text-xs px-3 py-1.5 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 disabled:opacity-50">
+                                    {bookingLoading === inv.id ? "..." : "Boeken"}
+                                  </button>
+                                )}
+                                {(inv.bookkeepingStatus === "booked" || inv.bookkeepingStatus === "processed") && (
+                                  <button onClick={() => handleUnbook(inv.id)} disabled={bookingLoading === inv.id}
+                                    className="text-xs px-3 py-1.5 border border-gray-300 text-gray-600 rounded-lg font-medium hover:bg-gray-50 disabled:opacity-50">
+                                    {bookingLoading === inv.id ? "..." : "Heropenen"}
+                                  </button>
+                                )}
+                                <Link href={`/bookkeeper/invoices/${inv.id}`} className="text-sm text-[#00AFCB] hover:text-[#004854] font-medium py-1">Bekijken</Link>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {verwerkenFiltered.length === 0 && <tr><td colSpan={10} className="px-5 py-12 text-center text-gray-400">Geen facturen gevonden.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile cards with checkboxes */}
+                <div className="md:hidden space-y-3">
+                  {verwerkenFiltered.map((inv) => {
+                    const isSelected = selectedSalesIds.has(inv.id);
+                    const canSelect = inv.bookkeepingStatus === "pending" || inv.bookkeepingStatus === "to_book" || inv.bookkeepingStatus === "processing";
+                    return (
+                      <div key={inv.id} className={`bg-white rounded-xl shadow-sm border p-4 ${isSelected ? "border-[#00AFCB] bg-[#00AFCB]/5" : "border-gray-100"}`}>
+                        <div className="flex items-start gap-3">
+                          <input type="checkbox" checked={isSelected} disabled={!canSelect} onChange={() => toggleSalesSelect(inv.id)} className="mt-1 rounded border-gray-300 disabled:opacity-30" />
+                          <Link href={`/bookkeeper/invoices/${inv.id}`} className="block flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium text-[#004854]">{inv.invoiceNumber}</p>
+                                <p className="text-sm text-gray-900 mt-0.5">{inv.customerName}</p>
+                                <p className="text-xs text-gray-500 mt-0.5">{getClientName(inv.clientId)} &middot; {formatDate(inv.date)}</p>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <p className="font-semibold text-sm">{formatCurrency(inv.total)}</p>
+                                <p className="text-xs text-gray-500">{formatCurrency(inv.subtotal)} + {formatCurrency(inv.vatAmount)}</p>
+                                <div className="mt-1"><StatusBadge status={inv.bookkeepingStatus} /></div>
+                              </div>
+                            </div>
+                          </Link>
+                        </div>
+                        <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100 ml-7">
+                          {canSelect && (
+                            <button onClick={() => handleBook(inv.id)} disabled={bookingLoading === inv.id}
+                              className="text-xs px-3 py-1.5 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 disabled:opacity-50">
+                              {bookingLoading === inv.id ? "..." : "Boeken"}
+                            </button>
+                          )}
+                          {(inv.bookkeepingStatus === "booked" || inv.bookkeepingStatus === "processed") && (
+                            <button onClick={() => handleUnbook(inv.id)} disabled={bookingLoading === inv.id}
+                              className="text-xs px-3 py-1.5 border border-gray-300 text-gray-600 rounded-lg font-medium hover:bg-gray-50 disabled:opacity-50">
+                              {bookingLoading === inv.id ? "..." : "Heropenen"}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {verwerkenFiltered.length === 0 && <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-4 py-12 text-center text-gray-400">Geen facturen gevonden.</div>}
                 </div>
               </div>
-            ))}
-            {filtered.length === 0 && <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-4 py-12 text-center text-gray-400">Geen facturen gevonden.</div>}
+            )}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ═══ INKOOP ═══ */}
       {section === "inkoop" && (
