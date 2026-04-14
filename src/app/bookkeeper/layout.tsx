@@ -28,7 +28,10 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
   const lastRefresh = useRef(0);
 
   const isMainPage = pathname === "/bookkeeper";
-  const activeSection = isMainPage ? (searchParams.get("section") || "dashboard") : "";
+  const activeSection = isMainPage
+    ? (searchParams.get("section") || "dashboard")
+    : pathname.startsWith("/bookkeeper/invoices") ? "verkoop"
+    : "";
 
   useEffect(() => { setMobileMenuOpen(false); }, [pathname]);
 
@@ -63,12 +66,13 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
         <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-widest text-white/30">Boekhouder</p>
         {sidebarItems.map((item) => {
-          const isActive = isMainPage && activeSection === item.key;
+          const isActive = activeSection === item.key;
           return (
             <Link key={item.key} href={item.href} onClick={() => setMobileMenuOpen(false)}
-              className={`flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all ${
-                isActive ? "bg-[#00AFCB]/15 text-[#00AFCB]" : "text-white/60 hover:bg-white/5 hover:text-white/90"
+              className={`relative flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all ${
+                isActive ? "bg-[#00AFCB]/20 text-white" : "text-white/60 hover:bg-white/5 hover:text-white/90"
               }`}>
+              {isActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-[#00AFCB] rounded-r-full" />}
               <span className={isActive ? "text-[#00AFCB]" : "text-white/40"}>{item.icon}</span>
               {item.label}
             </Link>
