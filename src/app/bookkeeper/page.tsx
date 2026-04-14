@@ -751,49 +751,78 @@ function BookkeeperContent() {
                     </div>
 
                     {/* Summary cards */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-                        <p className="text-xs text-gray-500">Totaal</p>
-                        <p className="text-lg font-bold text-[#004854]">{facturatieInvoices.length}</p>
-                      </div>
-                      <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-                        <p className="text-xs text-gray-500">Openstaand</p>
-                        <p className="text-lg font-bold text-amber-600">{facturatieInvoices.filter((i) => i.status === "sent" || i.status === "overdue").length}</p>
-                      </div>
-                      <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-                        <p className="text-xs text-gray-500">Betaald</p>
-                        <p className="text-lg font-bold text-emerald-600">{facturatieInvoices.filter((i) => i.status === "paid").length}</p>
-                      </div>
-                      <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-                        <p className="text-xs text-gray-500">Omzet</p>
-                        <p className="text-lg font-bold text-[#004854]">{formatCurrency(facturatieInvoices.reduce((s, i) => s + i.subtotal, 0))}</p>
-                      </div>
-                    </div>
+                    {(() => {
+                      const openInvs = facturatieInvoices.filter((i) => i.status === "sent" || i.status === "overdue");
+                      const overdueInvs = facturatieInvoices.filter((i) => i.status === "overdue");
+                      const openAmount = openInvs.reduce((s, i) => s + i.total, 0);
+                      const overdueAmount = overdueInvs.reduce((s, i) => s + i.total, 0);
+                      return (
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                          <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                            <p className="text-xs text-gray-500">Totaal facturen</p>
+                            <p className="text-lg font-bold text-[#004854]">{facturatieInvoices.length}</p>
+                          </div>
+                          <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                            <p className="text-xs text-gray-500">Openstaand</p>
+                            <p className="text-lg font-bold text-amber-600">{openInvs.length}</p>
+                            <p className="text-xs text-gray-400">{formatCurrency(openAmount)}</p>
+                          </div>
+                          <div className="bg-amber-50 rounded-xl p-4 shadow-sm border border-amber-100">
+                            <p className="text-xs text-amber-700">Verlopen</p>
+                            <p className="text-lg font-bold text-red-600">{overdueInvs.length}</p>
+                            <p className="text-xs text-red-500">{formatCurrency(overdueAmount)}</p>
+                          </div>
+                          <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                            <p className="text-xs text-gray-500">Betaald</p>
+                            <p className="text-lg font-bold text-emerald-600">{facturatieInvoices.filter((i) => i.status === "paid").length}</p>
+                          </div>
+                          <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                            <p className="text-xs text-gray-500">Totale omzet</p>
+                            <p className="text-lg font-bold text-[#004854]">{formatCurrency(facturatieInvoices.reduce((s, i) => s + i.subtotal, 0))}</p>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Invoice list */}
                     <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
                       <table className="w-full">
-                        <thead><tr className="text-left text-sm text-gray-500 border-b border-gray-100 bg-gray-50">
-                          <th className="px-5 py-3 font-medium">Factuurnr.</th><th className="px-5 py-3 font-medium">Debiteur</th>
-                          <th className="px-5 py-3 font-medium">Datum</th><th className="px-5 py-3 font-medium">Vervaldatum</th>
-                          <th className="px-5 py-3 font-medium">Status</th><th className="px-5 py-3 font-medium text-right">Bedrag</th>
-                          <th className="px-5 py-3 font-medium text-right">Actie</th>
+                        <thead><tr className="text-left text-[11px] text-gray-500 border-b border-gray-100 bg-gray-50">
+                          <th className="px-4 py-2.5 font-medium">Factuurnr.</th><th className="px-3 py-2.5 font-medium">Debiteur</th>
+                          <th className="px-3 py-2.5 font-medium">Datum</th><th className="px-3 py-2.5 font-medium">Vervaldatum</th>
+                          <th className="px-3 py-2.5 font-medium">Status</th><th className="px-3 py-2.5 font-medium text-right">Bedrag</th>
+                          <th className="px-3 py-2.5 font-medium text-center">Herinneringen</th>
+                          <th className="px-3 py-2.5 font-medium text-right">Actie</th>
                         </tr></thead>
                         <tbody className="divide-y divide-gray-50">
-                          {facturatieInvoices.map((inv) => (
-                            <tr key={inv.id} className="hover:bg-gray-50">
-                              <td className="px-5 py-4 font-medium text-sm">{inv.invoiceNumber}</td>
-                              <td className="px-5 py-4 text-sm text-gray-600">{inv.customerName}</td>
-                              <td className="px-5 py-4 text-sm text-gray-600">{formatDate(inv.date)}</td>
-                              <td className="px-5 py-4 text-sm text-gray-600">{formatDate(inv.dueDate)}</td>
-                              <td className="px-5 py-4"><StatusBadge status={inv.status} /></td>
-                              <td className="px-5 py-4 text-right font-semibold text-sm">{formatCurrency(inv.total)}</td>
-                              <td className="px-5 py-4 text-right">
-                                <Link href={`/bookkeeper/invoices/${inv.id}`} className="text-sm text-[#00AFCB] hover:text-[#004854] font-medium">Bekijken</Link>
-                              </td>
-                            </tr>
-                          ))}
-                          {facturatieInvoices.length === 0 && <tr><td colSpan={7} className="px-5 py-12 text-center text-gray-400">Geen facturen voor deze klant.</td></tr>}
+                          {facturatieInvoices.map((inv) => {
+                            const dueDate = new Date(inv.dueDate);
+                            const daysOver = Math.floor((Date.now() - dueDate.getTime()) / 86400000);
+                            const isOverdue = daysOver > 0 && (inv.status === "sent" || inv.status === "overdue");
+                            return (
+                              <tr key={inv.id} className={`hover:bg-gray-50 ${isOverdue ? "bg-red-50/30" : ""}`}>
+                                <td className="px-4 py-3 font-medium text-sm">
+                                  {inv.invoiceNumber}
+                                  {inv.isCredit && <span className="ml-1 text-[10px] text-red-500">(credit)</span>}
+                                </td>
+                                <td className="px-3 py-3 text-sm text-gray-600">{inv.customerName}</td>
+                                <td className="px-3 py-3 text-sm text-gray-600">{formatDate(inv.date)}</td>
+                                <td className="px-3 py-3 text-sm">
+                                  <span className={isOverdue ? "text-red-600 font-medium" : "text-gray-600"}>{formatDate(inv.dueDate)}</span>
+                                  {isOverdue && <span className="block text-[10px] text-red-500">{daysOver}d over</span>}
+                                </td>
+                                <td className="px-3 py-3"><StatusBadge status={inv.status} /></td>
+                                <td className="px-3 py-3 text-right font-semibold text-sm">{formatCurrency(inv.total)}</td>
+                                <td className="px-3 py-3 text-center">
+                                  {inv.remindersSent > 0 ? <span className="text-xs text-amber-600 font-medium">{inv.remindersSent}x</span> : <span className="text-xs text-gray-300">—</span>}
+                                </td>
+                                <td className="px-3 py-3 text-right">
+                                  <Link href={`/bookkeeper/invoices/${inv.id}`} className="text-sm text-[#00AFCB] hover:text-[#004854] font-medium">Bekijken</Link>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          {facturatieInvoices.length === 0 && <tr><td colSpan={8} className="px-5 py-12 text-center text-gray-400">Geen facturen voor deze klant.</td></tr>}
                         </tbody>
                       </table>
                     </div>
