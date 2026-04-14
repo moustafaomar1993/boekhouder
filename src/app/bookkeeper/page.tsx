@@ -135,6 +135,36 @@ function BookkeeperContent() {
   const [exceptionForm, setExceptionForm] = useState({ userId: "", type: "missing_document", title: "", description: "", invoiceId: "", purchaseDocId: "", bankTransactionId: "" });
   const [exceptionSaving, setExceptionSaving] = useState(false);
 
+  // Grootboek state
+  interface LedgerAccountData {
+    id: string; accountNumber: string; name: string; description: string | null;
+    accountType: string; category: string; statementSection: string | null;
+    normalBalance: string; isBalanceSheet: boolean; isActive: boolean;
+    isSystem: boolean; sortOrder: number; vatCodeId: string | null;
+    defaultVatCode: VatCodeData | null;
+  }
+  interface VatCodeData {
+    id: string; code: string; name: string; description: string | null;
+    percentage: number; type: string; rubricCode: string | null;
+    ledgerAccountId: string | null; isActive: boolean; isSystem: boolean;
+    ledgerAccount: { id: string; accountNumber: string; name: string } | null;
+  }
+  const [ledgerAccounts, setLedgerAccounts] = useState<LedgerAccountData[]>([]);
+  const [vatCodes, setVatCodes] = useState<VatCodeData[]>([]);
+  const [grootboekTab, setGrootboekTab] = useState<"accounts" | "btw" | "statements">("accounts");
+  const [ledgerSearch, setLedgerSearch] = useState("");
+  const [showInactive, setShowInactive] = useState(false);
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(["all"]));
+  const [showAccountModal, setShowAccountModal] = useState(false);
+  const [editingAccount, setEditingAccount] = useState<LedgerAccountData | null>(null);
+  const [accountForm, setAccountForm] = useState({ accountNumber: "", name: "", description: "", accountType: "expense", category: "", statementSection: "", normalBalance: "debit", isBalanceSheet: false, vatCodeId: "" });
+  const [accountSaving, setAccountSaving] = useState(false);
+  const [showVatModal, setShowVatModal] = useState(false);
+  const [editingVat, setEditingVat] = useState<VatCodeData | null>(null);
+  const [vatForm, setVatForm] = useState({ code: "", name: "", description: "", percentage: "21", type: "sales", rubricCode: "", ledgerAccountId: "" });
+  const [vatSaving, setVatSaving] = useState(false);
+  const [statementView, setStatementView] = useState<"balans" | "wv">("wv");
+
   // Afletteren state
   const [reconDocTab, setReconDocTab] = useState<"verkoop" | "inkoop">("verkoop");
   const [reconRelationFilter, setReconRelationFilter] = useState("all");
@@ -153,6 +183,8 @@ function BookkeeperContent() {
     fetch("/api/bank/transactions").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setBankTxs(d); }).catch(() => {});
     fetch("/api/exceptions").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setExceptions(d); }).catch(() => {});
     fetch("/api/conversations").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setAccConvos(d); }).catch(() => {});
+    fetch("/api/ledger-accounts").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setLedgerAccounts(d); }).catch(() => {});
+    fetch("/api/vat-codes").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setVatCodes(d); }).catch(() => {});
   }, []);
 
   async function handleBook(invoiceId: string) {
@@ -570,7 +602,7 @@ function BookkeeperContent() {
 
   const sectionTitles: Record<string, string> = {
     dashboard: "Dashboard", verkoop: "Verkoop", inkoop: "Inkoop", bank: "Bank",
-    kas: "Kas", afletteren: "Afletteren", taken: "Taken", berichten: "Berichten",
+    kas: "Kas", afletteren: "Afletteren", grootboek: "Grootboek", taken: "Taken", berichten: "Berichten",
     agenda: "Agenda", fiscaal: "BTW & Fiscaal", instellingen: "Instellingen",
   };
 
@@ -1753,6 +1785,608 @@ function BookkeeperContent() {
         </div>
       )}
 
+      {/* ═══ GROOTBOEK ═══ */}
+      {section === "grootboek" && (() => {
+        const accountTypeLabels: Record<string, string> = { asset: "Actief", liability: "Passief", equity: "Eigen vermogen", revenue: "Opbrengst", expense: "Kosten", contra: "Contra" };
+        const accountTypeColors: Record<string, string> = { asset: "bg-blue-100 text-blue-700", liability: "bg-purple-100 text-purple-700", equity: "bg-indigo-100 text-indigo-700", revenue: "bg-green-100 text-green-700", expense: "bg-red-100 text-red-700", contra: "bg-gray-100 text-gray-600" };
+        const rubricLabels: Record<string, string> = { "1a": "1a - Leveringen/diensten hoog tarief", "1b": "1b - Leveringen/diensten laag tarief", "1c": "1c - Leveringen/diensten overige tarieven", "1d": "1d - Privégebruik", "2a": "2a - Verlegd / nultarief", "3a": "3a - Leveringen buiten EU", "3b": "3b - Leveringen binnen EU (ICP)", "4a": "4a - Verwerving buiten EU", "4b": "4b - Verwerving binnen EU", "5a": "5a - Verschuldigde omzetbelasting", "5b": "5b - Voorbelasting" };
+
+        const filteredAccounts = ledgerAccounts.filter((a) => {
+          if (!showInactive && !a.isActive) return false;
+          if (ledgerSearch) {
+            const s = ledgerSearch.toLowerCase();
+            return a.accountNumber.includes(s) || a.name.toLowerCase().includes(s);
+          }
+          return true;
+        });
+
+        const grouped = filteredAccounts.reduce<Record<string, LedgerAccountData[]>>((acc, a) => {
+          const key = a.category;
+          if (!acc[key]) acc[key] = [];
+          acc[key].push(a);
+          return acc;
+        }, {});
+
+        const categoryOrder = Object.keys(grouped).sort((a, b) => {
+          const aMin = Math.min(...grouped[a].map((x) => x.sortOrder));
+          const bMin = Math.min(...grouped[b].map((x) => x.sortOrder));
+          return aMin - bMin;
+        });
+
+        const isAllExpanded = expandedCategories.has("all");
+        function toggleCategory(cat: string) {
+          setExpandedCategories((prev) => {
+            const n = new Set(prev);
+            if (n.has("all")) { n.delete("all"); categoryOrder.forEach((c) => { if (c !== cat) n.add(c); }); }
+            else if (n.has(cat)) n.delete(cat);
+            else n.add(cat);
+            return n;
+          });
+        }
+        function isCatExpanded(cat: string) { return isAllExpanded || expandedCategories.has(cat); }
+
+        function openAccountAdd() {
+          setEditingAccount(null);
+          setAccountForm({ accountNumber: "", name: "", description: "", accountType: "expense", category: "", statementSection: "", normalBalance: "debit", isBalanceSheet: false, vatCodeId: "" });
+          setShowAccountModal(true);
+        }
+        function openAccountEdit(a: LedgerAccountData) {
+          setEditingAccount(a);
+          setAccountForm({ accountNumber: a.accountNumber, name: a.name, description: a.description || "", accountType: a.accountType, category: a.category, statementSection: a.statementSection || "", normalBalance: a.normalBalance, isBalanceSheet: a.isBalanceSheet, vatCodeId: a.vatCodeId || "" });
+          setShowAccountModal(true);
+        }
+        async function saveAccount() {
+          setAccountSaving(true);
+          try {
+            const payload = { ...accountForm, vatCodeId: accountForm.vatCodeId || null, sortOrder: parseInt(accountForm.accountNumber, 10) || 0 };
+            const res = editingAccount
+              ? await fetch(`/api/ledger-accounts/${editingAccount.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
+              : await fetch("/api/ledger-accounts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+            if (res.ok) {
+              const refreshed = await fetch("/api/ledger-accounts").then((r) => r.json());
+              setLedgerAccounts(refreshed);
+              setShowAccountModal(false);
+            }
+          } catch { /* */ }
+          finally { setAccountSaving(false); }
+        }
+        async function toggleAccountActive(a: LedgerAccountData) {
+          const res = await fetch(`/api/ledger-accounts/${a.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ isActive: !a.isActive }) });
+          if (res.ok) setLedgerAccounts((prev) => prev.map((x) => x.id === a.id ? { ...x, isActive: !x.isActive } : x));
+        }
+        async function deleteAccount(a: LedgerAccountData) {
+          if (a.isSystem) return;
+          const res = await fetch(`/api/ledger-accounts/${a.id}`, { method: "DELETE" });
+          if (res.ok) setLedgerAccounts((prev) => prev.filter((x) => x.id !== a.id));
+        }
+
+        function openVatAdd() {
+          setEditingVat(null);
+          setVatForm({ code: "", name: "", description: "", percentage: "21", type: "sales", rubricCode: "", ledgerAccountId: "" });
+          setShowVatModal(true);
+        }
+        function openVatEdit(v: VatCodeData) {
+          setEditingVat(v);
+          setVatForm({ code: v.code, name: v.name, description: v.description || "", percentage: String(v.percentage), type: v.type, rubricCode: v.rubricCode || "", ledgerAccountId: v.ledgerAccountId || "" });
+          setShowVatModal(true);
+        }
+        async function saveVat() {
+          setVatSaving(true);
+          try {
+            const payload = { ...vatForm, ledgerAccountId: vatForm.ledgerAccountId || null, rubricCode: vatForm.rubricCode || null };
+            const res = editingVat
+              ? await fetch(`/api/vat-codes/${editingVat.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
+              : await fetch("/api/vat-codes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+            if (res.ok) {
+              const refreshed = await fetch("/api/vat-codes").then((r) => r.json());
+              setVatCodes(refreshed);
+              setShowVatModal(false);
+            }
+          } catch { /* */ }
+          finally { setVatSaving(false); }
+        }
+        async function toggleVatActive(v: VatCodeData) {
+          const res = await fetch(`/api/vat-codes/${v.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ isActive: !v.isActive }) });
+          if (res.ok) setVatCodes((prev) => prev.map((x) => x.id === v.id ? { ...x, isActive: !x.isActive } : x));
+        }
+
+        // Statement helpers
+        const bsAccounts = ledgerAccounts.filter((a) => a.isBalanceSheet && a.isActive);
+        const plAccounts = ledgerAccounts.filter((a) => !a.isBalanceSheet && a.isActive);
+        function groupBySection(accs: LedgerAccountData[]) {
+          return accs.reduce<Record<string, LedgerAccountData[]>>((acc, a) => {
+            const key = a.statementSection || a.category;
+            if (!acc[key]) acc[key] = [];
+            acc[key].push(a);
+            return acc;
+          }, {});
+        }
+
+        return (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold text-[#3C2C1E]">Grootboek</h1>
+                <p className="text-sm text-[#6F5C4B]/70 mt-1">Rekeningschema, BTW-codes en jaarrekening-structuur</p>
+              </div>
+            </div>
+
+            {/* Tab switcher */}
+            <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
+              {[
+                { key: "accounts" as const, label: "Rekeningschema" },
+                { key: "btw" as const, label: "BTW-codes" },
+                { key: "statements" as const, label: "Jaarrekening" },
+              ].map((t) => (
+                <button key={t.key} onClick={() => setGrootboekTab(t.key)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${grootboekTab === t.key ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* ─── Tab 1: Rekeningschema ─── */}
+            {grootboekTab === "accounts" && (
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <div className="relative">
+                      <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                      <input type="text" placeholder="Zoek op nummer of naam..." value={ledgerSearch} onChange={(e) => setLedgerSearch(e.target.value)}
+                        className="pl-10 pr-4 py-2 rounded-lg border border-gray-200 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30 focus:border-[#00AFCB]" />
+                    </div>
+                    <label className="flex items-center gap-2 text-sm text-gray-500 cursor-pointer">
+                      <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} className="rounded border-gray-300" />
+                      Toon inactief
+                    </label>
+                  </div>
+                  <button onClick={openAccountAdd} className="px-4 py-2 bg-[#00AFCB] text-white rounded-lg text-sm font-medium hover:bg-[#008FA8] transition-colors flex items-center gap-2">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                    Nieuwe rekening
+                  </button>
+                </div>
+
+                <div className="text-xs text-gray-400">{filteredAccounts.length} rekeningen{!showInactive && ` (actief)`}</div>
+
+                <div className="space-y-2">
+                  {categoryOrder.map((cat) => {
+                    const accounts = grouped[cat];
+                    const expanded = isCatExpanded(cat);
+                    const range = accounts[0]?.accountNumber.slice(0, 1) + "xxx";
+                    return (
+                      <div key={cat} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                        <button onClick={() => toggleCategory(cat)}
+                          className="w-full flex items-center justify-between px-5 py-3 bg-gray-50/80 hover:bg-gray-50 transition-colors text-left">
+                          <div className="flex items-center gap-3">
+                            <svg className={`w-4 h-4 text-gray-400 transition-transform ${expanded ? "rotate-90" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                            <span className="text-xs font-mono text-gray-400">{range}</span>
+                            <span className="text-sm font-semibold text-[#3C2C1E]">{cat}</span>
+                          </div>
+                          <span className="text-xs text-gray-400">{accounts.length} rekeningen</span>
+                        </button>
+                        {expanded && (
+                          <div className="divide-y divide-gray-50">
+                            {accounts.map((a) => (
+                              <div key={a.id} onClick={() => openAccountEdit(a)}
+                                className={`flex items-center gap-4 px-5 py-3 cursor-pointer hover:bg-gray-50/50 transition-colors ${!a.isActive ? "opacity-50" : ""}`}>
+                                <span className="text-sm font-mono font-medium text-[#004854] w-14 shrink-0">{a.accountNumber}</span>
+                                <span className="text-sm text-gray-700 flex-1 min-w-0 truncate">{a.name}</span>
+                                <span className={`hidden sm:inline-block px-2 py-0.5 rounded-full text-[10px] font-medium ${accountTypeColors[a.accountType] || "bg-gray-100"}`}>{accountTypeLabels[a.accountType] || a.accountType}</span>
+                                <span className="hidden md:inline-block text-[10px] text-gray-400 w-12 text-center">{a.normalBalance === "debit" ? "D" : "C"}</span>
+                                {!a.isActive && <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-500">Inactief</span>}
+                                {a.isSystem && <span className="hidden lg:inline-block text-[10px] text-gray-300">systeem</span>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {categoryOrder.length === 0 && (
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center text-gray-400 text-sm">
+                      Geen rekeningen gevonden
+                    </div>
+                  )}
+                </div>
+
+                {/* Account modal */}
+                {showAccountModal && (
+                  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowAccountModal(false)}>
+                    <div className="bg-white rounded-xl max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                      <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                        <h3 className="text-base font-semibold text-[#3C2C1E]">{editingAccount ? "Rekening bewerken" : "Nieuwe rekening"}</h3>
+                        <button onClick={() => setShowAccountModal(false)} className="p-1 hover:bg-gray-100 rounded-lg"><svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+                      </div>
+                      <div className="p-6 space-y-4">
+                        {editingAccount?.isSystem && (
+                          <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 text-xs text-amber-700">Dit is een systeemrekening. Rekeningnummer en type kunnen niet worden gewijzigd.</div>
+                        )}
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Rekeningnummer</label>
+                            <input type="text" maxLength={4} value={accountForm.accountNumber} onChange={(e) => setAccountForm((p) => ({ ...p, accountNumber: e.target.value.replace(/\D/g, "").slice(0, 4) }))} disabled={editingAccount?.isSystem}
+                              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30 disabled:bg-gray-50 disabled:text-gray-400" placeholder="0000" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+                            <select value={accountForm.accountType} onChange={(e) => setAccountForm((p) => ({ ...p, accountType: e.target.value }))} disabled={editingAccount?.isSystem}
+                              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30 disabled:bg-gray-50">
+                              <option value="asset">Actief</option><option value="liability">Passief</option><option value="equity">Eigen vermogen</option>
+                              <option value="revenue">Opbrengst</option><option value="expense">Kosten</option><option value="contra">Contra</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Naam</label>
+                          <input type="text" value={accountForm.name} onChange={(e) => setAccountForm((p) => ({ ...p, name: e.target.value }))}
+                            className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30" placeholder="Naam rekening" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Omschrijving</label>
+                          <input type="text" value={accountForm.description} onChange={(e) => setAccountForm((p) => ({ ...p, description: e.target.value }))}
+                            className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30" placeholder="Optionele omschrijving" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Categorie</label>
+                            <input type="text" value={accountForm.category} onChange={(e) => setAccountForm((p) => ({ ...p, category: e.target.value }))}
+                              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30" placeholder="Bijv. Huisvestingskosten" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Jaarrekeningsectie</label>
+                            <input type="text" value={accountForm.statementSection} onChange={(e) => setAccountForm((p) => ({ ...p, statementSection: e.target.value }))}
+                              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30" placeholder="Bijv. Bedrijfskosten" />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Normaalstand</label>
+                            <select value={accountForm.normalBalance} onChange={(e) => setAccountForm((p) => ({ ...p, normalBalance: e.target.value }))}
+                              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30">
+                              <option value="debit">Debet</option><option value="credit">Credit</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Standaard BTW-code</label>
+                            <select value={accountForm.vatCodeId} onChange={(e) => setAccountForm((p) => ({ ...p, vatCodeId: e.target.value }))}
+                              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30">
+                              <option value="">Geen</option>
+                              {vatCodes.filter((v) => v.isActive).map((v) => <option key={v.id} value={v.id}>{v.code} - {v.name} ({v.percentage}%)</option>)}
+                            </select>
+                          </div>
+                        </div>
+                        <label className="flex items-center gap-2 text-sm text-gray-600">
+                          <input type="checkbox" checked={accountForm.isBalanceSheet} onChange={(e) => setAccountForm((p) => ({ ...p, isBalanceSheet: e.target.checked }))} className="rounded border-gray-300" />
+                          Balansrekening
+                        </label>
+                      </div>
+                      <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
+                        <div>
+                          {editingAccount && !editingAccount.isSystem && (
+                            <button onClick={() => { deleteAccount(editingAccount); setShowAccountModal(false); }} className="text-xs text-red-500 hover:text-red-700">Verwijderen</button>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          {editingAccount && (
+                            <button onClick={() => { toggleAccountActive(editingAccount); setShowAccountModal(false); }}
+                              className="px-3 py-2 rounded-lg text-sm border border-gray-200 hover:bg-gray-50 transition-colors">
+                              {editingAccount.isActive ? "Deactiveren" : "Activeren"}
+                            </button>
+                          )}
+                          <button onClick={() => setShowAccountModal(false)} className="px-4 py-2 rounded-lg text-sm border border-gray-200 hover:bg-gray-50 transition-colors">Annuleren</button>
+                          <button onClick={saveAccount} disabled={accountSaving || !accountForm.accountNumber || !accountForm.name || !accountForm.category}
+                            className="px-4 py-2 bg-[#00AFCB] text-white rounded-lg text-sm font-medium hover:bg-[#008FA8] transition-colors disabled:opacity-50">
+                            {accountSaving ? "Opslaan..." : "Opslaan"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ─── Tab 2: BTW-codes ─── */}
+            {grootboekTab === "btw" && (
+              <div className="space-y-6">
+                <div className="flex justify-end">
+                  <button onClick={openVatAdd} className="px-4 py-2 bg-[#00AFCB] text-white rounded-lg text-sm font-medium hover:bg-[#008FA8] transition-colors flex items-center gap-2">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                    Nieuwe BTW-code
+                  </button>
+                </div>
+
+                {/* Sales VAT codes */}
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                  <div className="px-5 py-3 bg-gray-50/80 border-b border-gray-100">
+                    <h3 className="text-sm font-semibold text-[#3C2C1E]">Verkoop BTW-codes</h3>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead><tr className="text-left text-[11px] text-gray-500 border-b border-gray-100">
+                        <th className="px-5 py-2.5 font-medium">Code</th><th className="px-3 py-2.5 font-medium">Naam</th>
+                        <th className="px-3 py-2.5 font-medium text-right">Tarief</th><th className="px-3 py-2.5 font-medium hidden sm:table-cell">Rubriek</th>
+                        <th className="px-3 py-2.5 font-medium hidden md:table-cell">Grootboekrekening</th><th className="px-3 py-2.5 font-medium">Status</th>
+                      </tr></thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {vatCodes.filter((v) => v.type === "sales").map((v) => (
+                          <tr key={v.id} onClick={() => openVatEdit(v)} className={`cursor-pointer hover:bg-gray-50/50 transition-colors ${!v.isActive ? "opacity-50" : ""}`}>
+                            <td className="px-5 py-3 text-sm font-mono font-medium text-[#004854]">{v.code}</td>
+                            <td className="px-3 py-3 text-sm text-gray-700">{v.name}</td>
+                            <td className="px-3 py-3 text-sm text-right font-medium">{v.percentage}%</td>
+                            <td className="px-3 py-3 text-xs text-gray-500 hidden sm:table-cell">{v.rubricCode ? rubricLabels[v.rubricCode] || v.rubricCode : "—"}</td>
+                            <td className="px-3 py-3 text-xs text-gray-500 hidden md:table-cell">{v.ledgerAccount ? `${v.ledgerAccount.accountNumber} ${v.ledgerAccount.name}` : "—"}</td>
+                            <td className="px-3 py-3">{v.isActive ? <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-100 text-green-700">Actief</span> : <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-500">Inactief</span>}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Purchase VAT codes */}
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                  <div className="px-5 py-3 bg-gray-50/80 border-b border-gray-100">
+                    <h3 className="text-sm font-semibold text-[#3C2C1E]">Inkoop BTW-codes</h3>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead><tr className="text-left text-[11px] text-gray-500 border-b border-gray-100">
+                        <th className="px-5 py-2.5 font-medium">Code</th><th className="px-3 py-2.5 font-medium">Naam</th>
+                        <th className="px-3 py-2.5 font-medium text-right">Tarief</th><th className="px-3 py-2.5 font-medium hidden sm:table-cell">Rubriek</th>
+                        <th className="px-3 py-2.5 font-medium hidden md:table-cell">Grootboekrekening</th><th className="px-3 py-2.5 font-medium">Status</th>
+                      </tr></thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {vatCodes.filter((v) => v.type === "purchase").map((v) => (
+                          <tr key={v.id} onClick={() => openVatEdit(v)} className={`cursor-pointer hover:bg-gray-50/50 transition-colors ${!v.isActive ? "opacity-50" : ""}`}>
+                            <td className="px-5 py-3 text-sm font-mono font-medium text-[#004854]">{v.code}</td>
+                            <td className="px-3 py-3 text-sm text-gray-700">{v.name}</td>
+                            <td className="px-3 py-3 text-sm text-right font-medium">{v.percentage}%</td>
+                            <td className="px-3 py-3 text-xs text-gray-500 hidden sm:table-cell">{v.rubricCode ? rubricLabels[v.rubricCode] || v.rubricCode : "—"}</td>
+                            <td className="px-3 py-3 text-xs text-gray-500 hidden md:table-cell">{v.ledgerAccount ? `${v.ledgerAccount.accountNumber} ${v.ledgerAccount.name}` : "—"}</td>
+                            <td className="px-3 py-3">{v.isActive ? <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-100 text-green-700">Actief</span> : <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-500">Inactief</span>}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* BTW Rubrieken overzicht */}
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                  <div className="px-5 py-3 bg-gray-50/80 border-b border-gray-100">
+                    <h3 className="text-sm font-semibold text-[#3C2C1E]">BTW-aangifte rubrieken</h3>
+                    <p className="text-xs text-gray-400 mt-0.5">Mapping van BTW-codes naar rubrieken in de BTW-aangifte</p>
+                  </div>
+                  <div className="divide-y divide-gray-50">
+                    {Object.entries(rubricLabels).map(([code, label]) => {
+                      const linked = vatCodes.filter((v) => v.rubricCode === code && v.isActive);
+                      return (
+                        <div key={code} className="flex items-center gap-4 px-5 py-3">
+                          <span className="text-sm font-mono font-medium text-[#004854] w-8">{code}</span>
+                          <span className="text-sm text-gray-600 flex-1">{label.split(" - ")[1]}</span>
+                          <div className="flex flex-wrap gap-1">
+                            {linked.length > 0 ? linked.map((v) => (
+                              <span key={v.id} className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-[#00AFCB]/10 text-[#004854]">{v.code}</span>
+                            )) : <span className="text-xs text-gray-300">—</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* VAT code modal */}
+                {showVatModal && (
+                  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowVatModal(false)}>
+                    <div className="bg-white rounded-xl max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                      <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                        <h3 className="text-base font-semibold text-[#3C2C1E]">{editingVat ? "BTW-code bewerken" : "Nieuwe BTW-code"}</h3>
+                        <button onClick={() => setShowVatModal(false)} className="p-1 hover:bg-gray-100 rounded-lg"><svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+                      </div>
+                      <div className="p-6 space-y-4">
+                        {editingVat?.isSystem && (
+                          <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 text-xs text-amber-700">Dit is een systeem BTW-code. Code en type kunnen niet worden gewijzigd.</div>
+                        )}
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Code</label>
+                            <input type="text" value={vatForm.code} onChange={(e) => setVatForm((p) => ({ ...p, code: e.target.value.toUpperCase() }))} disabled={editingVat?.isSystem}
+                              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30 disabled:bg-gray-50" placeholder="VH21" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+                            <select value={vatForm.type} onChange={(e) => setVatForm((p) => ({ ...p, type: e.target.value }))} disabled={editingVat?.isSystem}
+                              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30 disabled:bg-gray-50">
+                              <option value="sales">Verkoop</option><option value="purchase">Inkoop</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Naam</label>
+                          <input type="text" value={vatForm.name} onChange={(e) => setVatForm((p) => ({ ...p, name: e.target.value }))}
+                            className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30" placeholder="BTW verkoop hoog tarief" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Omschrijving</label>
+                          <input type="text" value={vatForm.description} onChange={(e) => setVatForm((p) => ({ ...p, description: e.target.value }))}
+                            className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30" placeholder="Optioneel" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Tarief (%)</label>
+                            <input type="number" step="0.1" min="0" max="100" value={vatForm.percentage} onChange={(e) => setVatForm((p) => ({ ...p, percentage: e.target.value }))}
+                              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">BTW-aangifte rubriek</label>
+                            <select value={vatForm.rubricCode} onChange={(e) => setVatForm((p) => ({ ...p, rubricCode: e.target.value }))}
+                              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30">
+                              <option value="">Geen</option>
+                              {Object.entries(rubricLabels).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Grootboekrekening (BTW-boeking)</label>
+                          <select value={vatForm.ledgerAccountId} onChange={(e) => setVatForm((p) => ({ ...p, ledgerAccountId: e.target.value }))}
+                            className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30">
+                            <option value="">Geen</option>
+                            {ledgerAccounts.filter((a) => a.isActive).map((a) => <option key={a.id} value={a.id}>{a.accountNumber} - {a.name}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                      <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
+                        <div>
+                          {editingVat && !editingVat.isSystem && (
+                            <button onClick={async () => {
+                              const res = await fetch(`/api/vat-codes/${editingVat.id}`, { method: "DELETE" });
+                              if (res.ok) { setVatCodes((prev) => prev.filter((x) => x.id !== editingVat.id)); setShowVatModal(false); }
+                            }} className="text-xs text-red-500 hover:text-red-700">Verwijderen</button>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          {editingVat && (
+                            <button onClick={() => { toggleVatActive(editingVat); setShowVatModal(false); }}
+                              className="px-3 py-2 rounded-lg text-sm border border-gray-200 hover:bg-gray-50 transition-colors">
+                              {editingVat.isActive ? "Deactiveren" : "Activeren"}
+                            </button>
+                          )}
+                          <button onClick={() => setShowVatModal(false)} className="px-4 py-2 rounded-lg text-sm border border-gray-200 hover:bg-gray-50 transition-colors">Annuleren</button>
+                          <button onClick={saveVat} disabled={vatSaving || !vatForm.code || !vatForm.name}
+                            className="px-4 py-2 bg-[#00AFCB] text-white rounded-lg text-sm font-medium hover:bg-[#008FA8] transition-colors disabled:opacity-50">
+                            {vatSaving ? "Opslaan..." : "Opslaan"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ─── Tab 3: Jaarrekening ─── */}
+            {grootboekTab === "statements" && (
+              <div className="space-y-4">
+                <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
+                  <button onClick={() => setStatementView("balans")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${statementView === "balans" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>Balans</button>
+                  <button onClick={() => setStatementView("wv")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${statementView === "wv" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>Winst & Verlies</button>
+                </div>
+
+                {statementView === "balans" && (() => {
+                  const activa = bsAccounts.filter((a) => a.accountType === "asset" || a.accountType === "contra" && a.isBalanceSheet && parseInt(a.accountNumber) < 3000);
+                  const passiva = bsAccounts.filter((a) => a.accountType === "liability" || a.accountType === "equity" || (parseInt(a.accountNumber) >= 3000 && a.accountType !== "asset"));
+                  const activaGrouped = groupBySection(activa);
+                  const passivaGrouped = groupBySection(passiva);
+                  const sectionOrder = (g: Record<string, LedgerAccountData[]>) => Object.keys(g).sort((a, b) => {
+                    const aMin = Math.min(...g[a].map((x) => x.sortOrder));
+                    const bMin = Math.min(...g[b].map((x) => x.sortOrder));
+                    return aMin - bMin;
+                  });
+
+                  return (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                        <div className="px-5 py-3 bg-blue-50/50 border-b border-blue-100">
+                          <h3 className="text-sm font-semibold text-blue-800">Activa</h3>
+                        </div>
+                        <div className="divide-y divide-gray-50">
+                          {sectionOrder(activaGrouped).map((sec) => (
+                            <div key={sec}>
+                              <div className="px-5 py-2 bg-gray-50/50"><span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{sec}</span></div>
+                              {activaGrouped[sec].sort((a, b) => a.sortOrder - b.sortOrder).map((a) => (
+                                <div key={a.id} className="flex items-center gap-3 px-5 py-2">
+                                  <span className="text-xs font-mono text-gray-400 w-10">{a.accountNumber}</span>
+                                  <span className="text-sm text-gray-700 flex-1">{a.name}</span>
+                                  <span className="text-[10px] text-gray-400">{a.normalBalance === "debit" ? "D" : "C"}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                        <div className="px-5 py-3 bg-purple-50/50 border-b border-purple-100">
+                          <h3 className="text-sm font-semibold text-purple-800">Passiva</h3>
+                        </div>
+                        <div className="divide-y divide-gray-50">
+                          {sectionOrder(passivaGrouped).map((sec) => (
+                            <div key={sec}>
+                              <div className="px-5 py-2 bg-gray-50/50"><span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{sec}</span></div>
+                              {passivaGrouped[sec].sort((a, b) => a.sortOrder - b.sortOrder).map((a) => (
+                                <div key={a.id} className="flex items-center gap-3 px-5 py-2">
+                                  <span className="text-xs font-mono text-gray-400 w-10">{a.accountNumber}</span>
+                                  <span className="text-sm text-gray-700 flex-1">{a.name}</span>
+                                  <span className="text-[10px] text-gray-400">{a.normalBalance === "debit" ? "D" : "C"}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {statementView === "wv" && (() => {
+                  const revenueAccs = plAccounts.filter((a) => a.statementSection === "Netto-omzet");
+                  const cogsAccs = plAccounts.filter((a) => a.statementSection === "Kostprijs omzet");
+                  const opexAccs = plAccounts.filter((a) => a.statementSection === "Bedrijfskosten");
+                  const deprAccs = plAccounts.filter((a) => a.statementSection === "Afschrijvingen");
+                  const personnelAccs = plAccounts.filter((a) => a.statementSection === "Personeelskosten");
+                  const finAccs = plAccounts.filter((a) => a.statementSection === "Financiele baten en lasten" || a.statementSection === "Buitengewone baten en lasten");
+
+                  function StatementBlock({ title, accounts: accs, color }: { title: string; accounts: LedgerAccountData[]; color: string }) {
+                    if (accs.length === 0) return null;
+                    return (
+                      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                        <div className={`px-5 py-3 border-b ${color}`}>
+                          <h3 className="text-sm font-semibold">{title}</h3>
+                        </div>
+                        <div className="divide-y divide-gray-50">
+                          {accs.sort((a, b) => a.sortOrder - b.sortOrder).map((a) => (
+                            <div key={a.id} className="flex items-center gap-3 px-5 py-2">
+                              <span className="text-xs font-mono text-gray-400 w-10">{a.accountNumber}</span>
+                              <span className="text-sm text-gray-700 flex-1">{a.name}</span>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded ${accountTypeColors[a.accountType] || "bg-gray-100"}`}>{accountTypeLabels[a.accountType]}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-3">
+                      <StatementBlock title="Netto-omzet" accounts={revenueAccs} color="bg-green-50/50 border-green-100 text-green-800" />
+                      <div className="px-4 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">Af: Kostprijs omzet</div>
+                      <StatementBlock title="Kostprijs omzet" accounts={cogsAccs} color="bg-orange-50/50 border-orange-100 text-orange-800" />
+                      <div className="bg-gray-50 rounded-lg px-5 py-3 flex justify-between items-center">
+                        <span className="text-sm font-semibold text-[#3C2C1E]">= Bruto marge</span>
+                        <span className="text-xs text-gray-400">Omzet - Kostprijs</span>
+                      </div>
+                      <div className="px-4 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">Af: Bedrijfskosten</div>
+                      <StatementBlock title="Bedrijfskosten" accounts={opexAccs} color="bg-red-50/50 border-red-100 text-red-800" />
+                      <StatementBlock title="Afschrijvingen" accounts={deprAccs} color="bg-amber-50/50 border-amber-100 text-amber-800" />
+                      <StatementBlock title="Personeelskosten" accounts={personnelAccs} color="bg-blue-50/50 border-blue-100 text-blue-800" />
+                      <div className="bg-gray-50 rounded-lg px-5 py-3 flex justify-between items-center">
+                        <span className="text-sm font-semibold text-[#3C2C1E]">= Bedrijfsresultaat</span>
+                        <span className="text-xs text-gray-400">Bruto marge - Kosten</span>
+                      </div>
+                      <StatementBlock title="Financiele baten en lasten" accounts={finAccs} color="bg-indigo-50/50 border-indigo-100 text-indigo-800" />
+                      <div className="bg-[#004854] rounded-lg px-5 py-4 flex justify-between items-center">
+                        <span className="text-sm font-bold text-white">= Resultaat voor belasting</span>
+                        <span className="text-xs text-white/60">Bedrijfsresultaat +/- Financieel</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* ═══ BTW & FISCAAL ═══ */}
       {section === "fiscaal" && (
         <ModuleShell title="BTW & Fiscaal" description="Fiscale overzichten en belastingrapportages."
@@ -1767,16 +2401,38 @@ function BookkeeperContent() {
 
       {/* ═══ INSTELLINGEN ═══ */}
       {section === "instellingen" && (
-        <ModuleShell title="Instellingen" description="Configureer het boekhoudportaal."
-          sections={[
-            { title: "Klantinstellingen", description: "Standaardinstellingen per klant configureren." },
-            { title: "Boekingsregels", description: "Automatische boekingsregels en sjablonen beheren." },
-            { title: "BTW-codes", description: "BTW-codes en tarieven configureren." },
-            { title: "Grootboekrekeningen", description: "Rekeningschema en grootboekrekeningen beheren." },
-            { title: "Bankkoppelingen", description: "Bankverbindingen en importinstellingen." },
-            { title: "AI-instellingen", description: "Configureer AI-suggesties en automatische herkenning." },
-          ]}
-        />
+        <div className="space-y-6">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-[#3C2C1E]">Instellingen</h1>
+            <p className="text-sm text-[#6F5C4B]/70 mt-1">Configureer het boekhoudportaal.</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Link href="/bookkeeper?section=grootboek" className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 sm:p-6 hover:border-[#00AFCB]/30 hover:shadow-md transition-all group">
+              <h3 className="text-base font-semibold text-[#3C2C1E] mb-1 group-hover:text-[#004854]">Grootboekrekeningen</h3>
+              <p className="text-sm text-gray-500 mb-3">Rekeningschema en grootboekrekeningen beheren.</p>
+              <span className="text-xs font-medium text-[#00AFCB]">Ga naar Grootboek &rarr;</span>
+            </Link>
+            <Link href="/bookkeeper?section=grootboek" onClick={() => setGrootboekTab("btw")} className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 sm:p-6 hover:border-[#00AFCB]/30 hover:shadow-md transition-all group">
+              <h3 className="text-base font-semibold text-[#3C2C1E] mb-1 group-hover:text-[#004854]">BTW-codes</h3>
+              <p className="text-sm text-gray-500 mb-3">BTW-codes en tarieven configureren.</p>
+              <span className="text-xs font-medium text-[#00AFCB]">Ga naar BTW-codes &rarr;</span>
+            </Link>
+            {[
+              { title: "Klantinstellingen", description: "Standaardinstellingen per klant configureren." },
+              { title: "Boekingsregels", description: "Automatische boekingsregels en sjablonen beheren." },
+              { title: "Bankkoppelingen", description: "Bankverbindingen en importinstellingen." },
+              { title: "AI-instellingen", description: "Configureer AI-suggesties en automatische herkenning." },
+            ].map((s, i) => (
+              <div key={i} className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 sm:p-6">
+                <h3 className="text-base font-semibold text-[#3C2C1E] mb-1">{s.title}</h3>
+                <p className="text-sm text-gray-500 mb-4">{s.description}</p>
+                <div className="bg-gray-50 rounded-lg p-4 text-center">
+                  <p className="text-xs text-gray-400">Binnenkort beschikbaar</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );

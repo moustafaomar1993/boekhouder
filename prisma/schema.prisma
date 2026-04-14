@@ -389,6 +389,49 @@ model BankTransaction {
   @@unique([userId, importHash])
 }
 
+model LedgerAccount {
+  id               String   @id @default(uuid())
+  accountNumber    String   @unique
+  name             String
+  description      String?
+  accountType      String   // asset, liability, equity, revenue, expense, contra
+  category         String   // group label: "Vaste activa", "Omzet", etc.
+  statementSection String?  // balance sheet or P&L line reference
+  normalBalance    String   // debit, credit
+  isBalanceSheet   Boolean  @default(false)
+  isActive         Boolean  @default(true)
+  isSystem         Boolean  @default(false)
+  sortOrder        Int      @default(0)
+
+  vatCodeId        String?
+  defaultVatCode   VatCode? @relation("LedgerDefaultVat", fields: [vatCodeId], references: [id])
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  vatCodesPosting  VatCode[] @relation("VatLedgerAccount")
+}
+
+model VatCode {
+  id              String   @id @default(uuid())
+  code            String   @unique
+  name            String
+  description     String?
+  percentage      Float
+  type            String   // sales, purchase
+  rubricCode      String?  // Dutch VAT return rubric: "1a", "1b", "5b", etc.
+  isActive        Boolean  @default(true)
+  isSystem        Boolean  @default(false)
+
+  ledgerAccountId String?
+  ledgerAccount   LedgerAccount? @relation("VatLedgerAccount", fields: [ledgerAccountId], references: [id])
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  defaultForAccounts LedgerAccount[] @relation("LedgerDefaultVat")
+}
+
 model SystemSetting {
   id        String   @id @default(uuid())
   key       String   @unique
