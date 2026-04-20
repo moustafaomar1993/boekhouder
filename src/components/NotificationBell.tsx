@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 
 interface Notification {
   id: string;
@@ -103,7 +104,10 @@ export default function NotificationBell({ variant = "dark" }: { variant?: "dark
   const [unreadCount, setUnreadCount] = useState(0);
   const [filter, setFilter] = useState<"all" | "unread" | "important">("all");
   const [loading, setLoading] = useState(false);
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; right: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const bellRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchNotifications = useCallback(async () => {
@@ -126,7 +130,10 @@ export default function NotificationBell({ variant = "dark" }: { variant?: "dark
   // Close on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (bellRef.current && bellRef.current.contains(target)) return;
+      if (dropdownRef.current && dropdownRef.current.contains(target)) return;
+      setOpen(false);
     }
     if (open) document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
@@ -169,7 +176,15 @@ export default function NotificationBell({ variant = "dark" }: { variant?: "dark
     <div ref={ref} className="relative">
       {/* Bell button */}
       <button
-        onClick={() => { setOpen(!open); if (!open) fetchNotifications(); }}
+        ref={bellRef}
+        onClick={() => {
+          if (!open && bellRef.current) {
+            const rect = bellRef.current.getBoundingClientRect();
+            setDropdownPos({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
+          }
+          setOpen(!open);
+          if (!open) fetchNotifications();
+        }}
         className={`relative p-2 rounded-lg transition-all ${
           variant === "light"
             ? "text-gray-500 hover:text-gray-800 hover:bg-gray-100"
@@ -188,9 +203,9 @@ export default function NotificationBell({ variant = "dark" }: { variant?: "dark
         )}
       </button>
 
-      {/* Dropdown panel */}
-      {open && (
-        <div className="absolute right-0 top-full mt-2 w-[400px] max-w-[calc(100vw-24px)] bg-white rounded-2xl shadow-2xl border border-gray-200 z-[70] overflow-hidden animate-dropdown-enter">
+      {/* Dropdown panel via portal */}
+      {open && dropdownPos && createPortal(
+        <div ref={dropdownRef} className="fixed w-[400px] max-w-[calc(100vw-24px)] bg-white rounded-2xl shadow-2xl border border-gray-200 z-[9999] overflow-hidden animate-dropdown-enter sm:right-auto" style={{ top: dropdownPos.top, right: Math.max(dropdownPos.right, 12) }}>
           {/* Header */}
           <div className="px-5 pt-4 pb-3 border-b border-gray-100">
             <div className="flex items-center justify-between mb-3">
@@ -308,7 +323,8 @@ export default function NotificationBell({ variant = "dark" }: { variant?: "dark
               ))
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

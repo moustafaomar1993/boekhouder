@@ -251,6 +251,13 @@ function BookkeeperContent() {
   // Voortgang popup
   const [showVoortgang, setShowVoortgang] = useState(false);
 
+  // Booking time tracking
+  const [bookingStartTimes, setBookingStartTimes] = useState<Record<string, number>>({});
+  const [bookingTimes, setBookingTimes] = useState<Record<string, number>>({});
+  const [sessionBookedCount, setSessionBookedCount] = useState(0);
+  const [sessionStartTime] = useState(() => Date.now());
+  const [todayBookedCount, setTodayBookedCount] = useState(0);
+
   // Afletteren state
   const [reconDocTab, setReconDocTab] = useState<"verkoop" | "inkoop">("verkoop");
   const [reconRelationFilter, setReconRelationFilter] = useState("all");
@@ -286,6 +293,8 @@ function BookkeeperContent() {
         const inv = invoices.find(i => i.id === invoiceId);
         setInvoices((prev) => prev.map((inv) => inv.id === invoiceId ? { ...inv, bookkeepingStatus: "booked", ...(category && { category }), ...(vatType && { vatType }) } : inv));
         if (inv) addToast({ type: "bookkeeping", title: "Factuur geboekt", message: `${inv.invoiceNumber} - ${inv.customerName}` });
+        setSessionBookedCount(prev => prev + 1);
+        setTodayBookedCount(prev => prev + 1);
       }
     } catch { /* */ }
     finally { setBookingLoading(null); }
@@ -307,6 +316,7 @@ function BookkeeperContent() {
   }
 
   function openBookModal(inv: Invoice) {
+    setBookingStartTimes(prev => ({ ...prev, [inv.id]: Date.now() }));
     setBookModalInvoiceId(inv.id);
     setBookModalDescription(inv.customerName + " - " + inv.invoiceNumber);
     setBookModalDate(inv.date);
@@ -391,6 +401,15 @@ function BookkeeperContent() {
         ));
         setBookModalInvoiceId(null);
         addToast({ type: "bookkeeping", title: "Factuur geboekt", message: bookedInv ? `${bookedInv.invoiceNumber} - ${bookedInv.customerName}` : "Factuur succesvol geboekt", actionUrl: bookedInv ? `/bookkeeper/invoices/${bookedInv.id}` : undefined, actionLabel: bookedInv ? "Bekijk factuur" : undefined });
+        // Track booking time
+        const startTime = bookingStartTimes[bookModalInvoiceId];
+        if (startTime) {
+          const elapsed = Date.now() - startTime;
+          setBookingTimes(prev => ({ ...prev, [bookModalInvoiceId]: elapsed }));
+          setBookingStartTimes(prev => { const n = { ...prev }; delete n[bookModalInvoiceId]; return n; });
+        }
+        setSessionBookedCount(prev => prev + 1);
+        setTodayBookedCount(prev => prev + 1);
       }
     } catch { /* */ }
     finally { setBookingLoading(null); }
@@ -1242,7 +1261,7 @@ function BookkeeperContent() {
                       </button>
                       <button onClick={() => setShowVoortgang(true)}
                         className="rounded-xl p-4 shadow-sm border bg-white border-gray-100 hover:border-[#00AFCB]/30 hover:shadow-md text-left transition-all group">
-                        <p className="text-xs text-gray-500 group-hover:text-[#00AFCB]">Voortgang</p>
+                        <p className="text-xs text-gray-500 group-hover:text-[#00AFCB]">Boekingsvoortgang</p>
                         <div className="flex items-center gap-2 mt-1">
                           <div className="flex-1 bg-gray-100 rounded-full h-2.5">
                             <div className="bg-emerald-500 h-2.5 rounded-full transition-all" style={{ width: `${vOverallProgress}%` }} />
@@ -1253,58 +1272,161 @@ function BookkeeperContent() {
                       </button>
                     </div>
 
-                    {/* Voortgang popup */}
+                    {/* Boekingsvoortgang popup */}
                     {showVoortgang && (() => {
                       const fullyProcessed = clientTiles.filter((c) => c.progress === 100).length;
                       const partiallyProcessed = clientTiles.filter((c) => c.progress > 0 && c.progress < 100).length;
                       const notStarted = clientTiles.filter((c) => c.progress === 0).length;
+
+                      // Time & productivity calculations
+                      const sessionDurationMs = Date.now() - sessionStartTime;
+                      const sessionMinutes = Math.floor(sessionDurationMs / 60000);
+                      const sessionHours = Math.floor(sessionMinutes / 60);
+                      const sessionMinRemainder = sessionMinutes % 60;
+                      const sessionDurationStr = sessionHours > 0 ? `${sessionHours}u ${sessionMinRemainder}m` : `${sessionMinutes}m`;
+
+                      const btValues = Object.values(bookingTimes);
+                      const avgBookingMs = btValues.length > 0 ? btValues.reduce((s, v) => s + v, 0) / btValues.length : 0;
+                      const avgBookingSec = Math.round(avgBookingMs / 1000);
+                      const avgBookingStr = btValues.length > 0
+                        ? (avgBookingSec >= 60 ? `${Math.floor(avgBookingSec / 60)}m ${avgBookingSec % 60}s` : `${avgBookingSec}s`)
+                        : "\u2014";
+
+                      const facturenPerUur = sessionMinutes > 0 && sessionBookedCount > 0
+                        ? Math.round((sessionBookedCount / sessionMinutes) * 60)
+                        : 0;
+
+                      // Per-client booking times
+                      const clientBookingTimeMap: Record<string, number> = {};
+                      for (const inv of invoices) {
+                        if (bookingTimes[inv.id]) {
+                          clientBookingTimeMap[inv.clientId] = (clientBookingTimeMap[inv.clientId] || 0) + bookingTimes[inv.id];
+                        }
+                      }
+
+                      const sortedClientTiles = [...clientTiles].sort((a, b) => {
+                        if (a.progress === 100 && b.progress !== 100) return -1;
+                        if (a.progress !== 100 && b.progress === 100) return 1;
+                        return b.progress - a.progress;
+                      });
+
                       return (
                         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowVoortgang(false)}>
-                          <div className="bg-white rounded-xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-                            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                              <h3 className="text-base font-semibold text-[#3C2C1E]">Verwerkingsvoortgang</h3>
+                          <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+                            {/* Header */}
+                            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+                              <h3 className="text-base font-semibold text-[#3C2C1E]">Boekingsvoortgang</h3>
                               <button onClick={() => setShowVoortgang(false)} className="p-1 hover:bg-gray-100 rounded-lg">
                                 <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                               </button>
                             </div>
-                            <div className="p-6 space-y-5">
-                              <div className="text-center">
-                                <div className="relative w-24 h-24 mx-auto mb-3">
-                                  <svg className="w-24 h-24 transform -rotate-90" viewBox="0 0 100 100">
-                                    <circle cx="50" cy="50" r="42" fill="none" stroke="#e5e7eb" strokeWidth="8" />
-                                    <circle cx="50" cy="50" r="42" fill="none" stroke="#10b981" strokeWidth="8" strokeDasharray={`${vOverallProgress * 2.64} 264`} strokeLinecap="round" />
-                                  </svg>
-                                  <div className="absolute inset-0 flex items-center justify-center">
-                                    <span className="text-2xl font-bold text-[#004854]">{vOverallProgress}%</span>
-                                  </div>
-                                </div>
-                                <p className="text-sm text-gray-600">{vTotalBooked} van {vTotalAll} facturen verwerkt</p>
-                              </div>
-                              <div className="grid grid-cols-3 gap-3 text-center">
-                                <div className="bg-emerald-50 rounded-lg p-3">
-                                  <p className="text-lg font-bold text-emerald-600">{fullyProcessed}</p>
-                                  <p className="text-[10px] text-emerald-700 font-medium">Volledig</p>
-                                </div>
-                                <div className="bg-blue-50 rounded-lg p-3">
-                                  <p className="text-lg font-bold text-blue-600">{partiallyProcessed}</p>
-                                  <p className="text-[10px] text-blue-700 font-medium">Bezig</p>
-                                </div>
-                                <div className="bg-gray-50 rounded-lg p-3">
-                                  <p className="text-lg font-bold text-gray-500">{notStarted}</p>
-                                  <p className="text-[10px] text-gray-600 font-medium">Niet gestart</p>
-                                </div>
-                              </div>
-                              <div className="space-y-2">
-                                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Per klant</p>
-                                {clientTiles.map((c) => (
-                                  <div key={c.id} className="flex items-center gap-3">
-                                    <span className="text-xs text-gray-700 flex-1 truncate">{c.name}</span>
-                                    <div className="w-20 bg-gray-100 rounded-full h-1.5">
-                                      <div className={`h-1.5 rounded-full ${c.progress === 100 ? "bg-emerald-500" : c.progress > 50 ? "bg-emerald-400" : "bg-[#00AFCB]"}`} style={{ width: `${c.progress}%` }} />
+
+                            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                              {/* Section 1: Overzicht */}
+                              <div>
+                                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Overzicht</p>
+                                <div className="text-center">
+                                  <div className="relative w-24 h-24 mx-auto mb-3">
+                                    <svg className="w-24 h-24 transform -rotate-90" viewBox="0 0 100 100">
+                                      <circle cx="50" cy="50" r="42" fill="none" stroke="#e5e7eb" strokeWidth="8" />
+                                      <circle cx="50" cy="50" r="42" fill="none" stroke="#10b981" strokeWidth="8" strokeDasharray={`${vOverallProgress * 2.64} 264`} strokeLinecap="round" />
+                                    </svg>
+                                    <div className="absolute inset-0 flex items-center justify-center">
+                                      <span className="text-2xl font-bold text-[#004854]">{vOverallProgress}%</span>
                                     </div>
-                                    <span className="text-[10px] text-gray-500 w-8 text-right">{c.progress}%</span>
                                   </div>
-                                ))}
+                                  <p className="text-sm text-gray-600">{vTotalBooked} van {vTotalAll} facturen geboekt</p>
+                                </div>
+                              </div>
+
+                              {/* Section 2: Statistieken */}
+                              <div>
+                                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Statistieken</p>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-center">
+                                  <div className="bg-emerald-50 rounded-lg p-3">
+                                    <p className="text-lg font-bold text-emerald-600">{fullyProcessed}</p>
+                                    <p className="text-[10px] text-emerald-700 font-medium">Volledig geboekt</p>
+                                  </div>
+                                  <div className="bg-blue-50 rounded-lg p-3">
+                                    <p className="text-lg font-bold text-blue-600">{partiallyProcessed}</p>
+                                    <p className="text-[10px] text-blue-700 font-medium">Bezig</p>
+                                  </div>
+                                  <div className="bg-gray-50 rounded-lg p-3">
+                                    <p className="text-lg font-bold text-gray-500">{notStarted}</p>
+                                    <p className="text-[10px] text-gray-600 font-medium">Niet gestart</p>
+                                  </div>
+                                  <div className="bg-white border border-gray-100 rounded-lg p-3">
+                                    <p className="text-lg font-bold text-[#004854]">{vTotalAll}</p>
+                                    <p className="text-[10px] text-gray-600 font-medium">Totaal facturen</p>
+                                  </div>
+                                  <div className="bg-white border border-gray-100 rounded-lg p-3">
+                                    <p className="text-lg font-bold text-emerald-600">{vTotalBooked}</p>
+                                    <p className="text-[10px] text-gray-600 font-medium">Geboekt</p>
+                                  </div>
+                                  <div className="bg-white border border-gray-100 rounded-lg p-3">
+                                    <p className="text-lg font-bold text-blue-600">{vTotalOpen}</p>
+                                    <p className="text-[10px] text-gray-600 font-medium">Openstaand</p>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Section 3: Tijd & Productiviteit */}
+                              <div>
+                                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Tijd &amp; Productiviteit</p>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-center">
+                                  <div className="bg-white border border-gray-100 rounded-lg p-3">
+                                    <p className="text-lg font-bold text-[#004854]">{sessionDurationStr}</p>
+                                    <p className="text-[10px] text-gray-600 font-medium">Sessie duur</p>
+                                  </div>
+                                  <div className="bg-white border border-gray-100 rounded-lg p-3">
+                                    <p className="text-lg font-bold text-[#00AFCB]">{sessionBookedCount}</p>
+                                    <p className="text-[10px] text-gray-600 font-medium">Geboekt deze sessie</p>
+                                  </div>
+                                  <div className="bg-white border border-gray-100 rounded-lg p-3">
+                                    <p className="text-lg font-bold text-[#00AFCB]">{todayBookedCount}</p>
+                                    <p className="text-[10px] text-gray-600 font-medium">Geboekt vandaag</p>
+                                  </div>
+                                  <div className="bg-white border border-gray-100 rounded-lg p-3">
+                                    <p className="text-lg font-bold text-[#004854]">{avgBookingStr}</p>
+                                    <p className="text-[10px] text-gray-600 font-medium">Gem. per factuur</p>
+                                  </div>
+                                  <div className="bg-white border border-gray-100 rounded-lg p-3">
+                                    <p className="text-lg font-bold text-[#004854]">{facturenPerUur > 0 ? facturenPerUur : "\u2014"}</p>
+                                    <p className="text-[10px] text-gray-600 font-medium">Facturen per uur</p>
+                                  </div>
+                                  <div className="bg-white border border-gray-100 rounded-lg p-3">
+                                    <p className="text-lg font-bold text-[#004854]">{"\u2014"}</p>
+                                    <p className="text-[10px] text-gray-600 font-medium">Klanten per uur</p>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Section 4: Per klant */}
+                              <div>
+                                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Per klant</p>
+                                <div className="space-y-2">
+                                  {sortedClientTiles.map((c) => {
+                                    const statusLabel = c.progress === 100 ? "Volledig" : c.progress > 0 ? "Bezig" : "Niet gestart";
+                                    const statusClass = c.progress === 100 ? "bg-emerald-100 text-emerald-700" : c.progress > 0 ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-600";
+                                    const clientTimeMs = clientBookingTimeMap[c.id] || 0;
+                                    const clientTimeSec = Math.round(clientTimeMs / 1000);
+                                    const clientTimeStr = clientTimeMs > 0
+                                      ? (clientTimeSec >= 60 ? `${Math.floor(clientTimeSec / 60)}m ${clientTimeSec % 60}s` : `${clientTimeSec}s`)
+                                      : "\u2014";
+                                    return (
+                                      <div key={c.id} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 bg-white border border-gray-100 rounded-lg p-3">
+                                        <span className="text-xs font-medium text-gray-800 flex-1 min-w-0 truncate">{c.name}</span>
+                                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold ${statusClass} shrink-0 w-fit`}>{statusLabel}</span>
+                                        <span className="text-[11px] text-gray-500 shrink-0">{c.booked}/{c.total}</span>
+                                        <div className="w-20 bg-gray-100 rounded-full h-1.5 shrink-0 hidden sm:block">
+                                          <div className={`h-1.5 rounded-full ${c.progress === 100 ? "bg-emerald-500" : c.progress > 50 ? "bg-emerald-400" : "bg-[#00AFCB]"}`} style={{ width: `${c.progress}%` }} />
+                                        </div>
+                                        <span className="text-[10px] text-gray-400 shrink-0 hidden sm:block">{clientTimeStr}</span>
+                                        <span className="text-[10px] font-medium text-gray-600 w-8 text-right shrink-0">{c.progress}%</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -1318,7 +1440,7 @@ function BookkeeperContent() {
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                         {clientTiles.filter((c) => {
                           if (boekenSummaryFilter === "open") return c.open > 0;
-                          if (boekenSummaryFilter === "booked") return c.booked > 0;
+                          if (boekenSummaryFilter === "booked") return c.progress === 100;
                           return true;
                         }).map((c) => (
                           <button key={c.id} onClick={() => { setBoekenClient(c.id); setFilter("all"); setSelectedSalesIds(new Set()); setBulkLedgerSearch(""); setBulkLedgerAccount(""); }}
@@ -1336,7 +1458,7 @@ function BookkeeperContent() {
                             </div>
                             <div className="mt-3">
                               <div className="flex justify-between text-[11px] text-gray-500 mb-1">
-                                <span>{c.booked} van {c.total} verwerkt</span>
+                                <span>{c.booked} van {c.total} geboekt</span>
                                 <span className="font-medium">{c.progress}%</span>
                               </div>
                               <div className="w-full bg-gray-100 rounded-full h-2">
@@ -1349,7 +1471,7 @@ function BookkeeperContent() {
                               {c.progress === 100 && (
                                 <span className="flex items-center gap-1 text-emerald-600 font-medium">
                                   <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                                  Volledig verwerkt
+                                  Volledig geboekt
                                 </span>
                               )}
                             </div>

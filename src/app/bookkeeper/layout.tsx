@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, Suspense } from "react";
+import { createPortal } from "react-dom";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -40,6 +41,9 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
   const [sidebarCounts, setSidebarCounts] = useState<{ toProcess: number; overdue: number; inkoopNew: number; boekingenNew: number; boekingenOldQ: number }>({ toProcess: 0, overdue: 0, inkoopNew: 0, boekingenNew: 0, boekingenOldQ: 0 });
   const [verkoopHover, setVerkoopHover] = useState(false);
   const verkoopHoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const verkoopLinkRef = useRef<HTMLDivElement>(null);
+  const verkoopPopupRef = useRef<HTMLDivElement>(null);
+  const [verkoopPopupPos, setVerkoopPopupPos] = useState<{ top: number; left: number } | null>(null);
   const [openInvoices, setOpenInvoices] = useState<{ id: string; invoiceNumber: string; customerName: string; total: number; dueDate: string; status: string }[]>([]);
 
   const isMainPage = pathname === "/bookkeeper";
@@ -146,12 +150,23 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
           // Verkoop hover dropdown with open invoices
           if (item.key === "verkoop") {
             return (
-              <div key={item.key} className="relative"
-                onMouseEnter={() => { if (verkoopHoverTimeout.current) clearTimeout(verkoopHoverTimeout.current); setVerkoopHover(true); }}
+              <div key={item.key} className="relative" ref={verkoopLinkRef}
+                onMouseEnter={() => {
+                  if (verkoopHoverTimeout.current) clearTimeout(verkoopHoverTimeout.current);
+                  if (verkoopLinkRef.current) {
+                    const rect = verkoopLinkRef.current.getBoundingClientRect();
+                    setVerkoopPopupPos({ top: rect.top, left: rect.right + 8 });
+                  }
+                  setVerkoopHover(true);
+                }}
                 onMouseLeave={() => { verkoopHoverTimeout.current = setTimeout(() => setVerkoopHover(false), 200); }}>
                 {linkEl}
-                {verkoopHover && openInvoices.length > 0 && (
-                  <div className="absolute left-full top-0 ml-2 w-72 bg-white rounded-xl shadow-xl border border-gray-200 z-[80] py-2 max-h-[360px] overflow-y-auto">
+                {verkoopHover && openInvoices.length > 0 && verkoopPopupPos && createPortal(
+                  <div ref={verkoopPopupRef}
+                    className="fixed w-72 bg-white rounded-xl shadow-xl border border-gray-200 z-[9999] py-2 max-h-[360px] overflow-y-auto"
+                    style={{ top: verkoopPopupPos.top, left: verkoopPopupPos.left }}
+                    onMouseEnter={() => { if (verkoopHoverTimeout.current) clearTimeout(verkoopHoverTimeout.current); }}
+                    onMouseLeave={() => { verkoopHoverTimeout.current = setTimeout(() => setVerkoopHover(false), 200); }}>
                     <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Openstaand ({openInvoices.length}{openInvoices.length >= 8 ? "+" : ""})</p>
                     {openInvoices.map((inv) => {
                       const isOverdue = inv.status === "overdue" || (inv.status === "sent" && new Date(inv.dueDate) < new Date());
@@ -174,7 +189,8 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
                       <Link href="/bookkeeper?section=verkoop" onClick={() => { setVerkoopHover(false); setMobileMenuOpen(false); }}
                         className="text-[11px] text-[#00AFCB] font-medium hover:text-[#004854]">Alle facturen bekijken &rarr;</Link>
                     </div>
-                  </div>
+                  </div>,
+                  document.body
                 )}
               </div>
             );
