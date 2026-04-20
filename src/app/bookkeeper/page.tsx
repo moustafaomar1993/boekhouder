@@ -102,6 +102,8 @@ function BookkeeperContent() {
   const [bookModalDescription, setBookModalDescription] = useState("");
   const [bookModalDate, setBookModalDate] = useState("");
   const [bookModalDueDate, setBookModalDueDate] = useState("");
+  const [bookModalSubtotal, setBookModalSubtotal] = useState<number | null>(null);
+  const [bookModalVatAmount, setBookModalVatAmount] = useState<number | null>(null);
   const [activeRowDrop, setActiveRowDrop] = useState<{ rowId: string; field: "ledger" | "vat" } | null>(null);
 
   // Reminder modal state
@@ -309,6 +311,8 @@ function BookkeeperContent() {
     setBookModalDescription(inv.customerName + " - " + inv.invoiceNumber);
     setBookModalDate(inv.date);
     setBookModalDueDate(inv.dueDate);
+    setBookModalSubtotal(null);
+    setBookModalVatAmount(null);
     setBookModalRows([{
       id: "row-0",
       ledgerAccount: "",
@@ -365,6 +369,12 @@ function BookkeeperContent() {
       if (bookModalDescription && modalInv && bookModalDescription !== (modalInv.customerName + " - " + modalInv.invoiceNumber)) {
         body.notes = bookModalDescription;
       }
+
+      // Send overridden amounts if edited
+      if (bookModalSubtotal !== null && modalInv) body.subtotal = bookModalSubtotal;
+      if (bookModalVatAmount !== null && modalInv) body.vatAmount = bookModalVatAmount;
+      if (bookModalDate && modalInv && bookModalDate !== modalInv.date) body.date = bookModalDate;
+      if (bookModalDueDate && modalInv && bookModalDueDate !== modalInv.dueDate) body.dueDate = bookModalDueDate;
 
       const res = await fetch(`/api/invoices/${bookModalInvoiceId}`, {
         method: "PATCH",
@@ -1621,11 +1631,15 @@ function BookkeeperContent() {
                     const modalInv = invoices.find((i) => i.id === bookModalInvoiceId);
                     if (!modalInv) return null;
 
+                    // Use edited amounts if overridden
+                    const effectiveSubtotal = bookModalSubtotal !== null ? bookModalSubtotal : modalInv.subtotal;
+                    const effectiveVat = bookModalVatAmount !== null ? bookModalVatAmount : modalInv.vatAmount;
+
                     // Compute row 0 remainder
                     const otherRowsExclTotal = bookModalRows.slice(1).reduce((s, r) => s + (r.exclVat || 0), 0);
                     const otherRowsVatTotal = bookModalRows.slice(1).reduce((s, r) => s + (r.vatAmount || 0), 0);
-                    const row0ExclVat = modalInv.subtotal - otherRowsExclTotal;
-                    const row0VatAmount = modalInv.vatAmount - otherRowsVatTotal;
+                    const row0ExclVat = effectiveSubtotal - otherRowsExclTotal;
+                    const row0VatAmount = effectiveVat - otherRowsVatTotal;
                     const totalRowsExcl = row0ExclVat + otherRowsExclTotal;
                     const totalRowsVat = row0VatAmount + otherRowsVatTotal;
 
@@ -1666,10 +1680,27 @@ function BookkeeperContent() {
                                 <input type="text" value={bookModalDescription} onChange={(e) => setBookModalDescription(e.target.value)}
                                   className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none mt-0.5" />
                               </div>
-                              <div className="flex flex-wrap gap-4 text-xs pt-1 border-t border-gray-200">
-                                <span className="text-gray-500">Subtotaal: <span className="font-medium text-gray-800">{formatCurrency(modalInv.subtotal)}</span></span>
-                                <span className="text-gray-500">BTW: <span className="font-medium text-gray-800">{formatCurrency(modalInv.vatAmount)}</span></span>
-                                <span className="text-gray-500">Totaal: <span className="font-bold text-gray-900">{formatCurrency(modalInv.total)}</span></span>
+                              <div className="flex flex-wrap gap-4 text-xs pt-2 border-t border-gray-200 items-end">
+                                <div>
+                                  <label className="text-gray-500 text-xs block mb-0.5">Subtotaal</label>
+                                  <input type="number" step="0.01"
+                                    value={bookModalSubtotal !== null ? bookModalSubtotal : modalInv.subtotal}
+                                    onChange={(e) => setBookModalSubtotal(parseFloat(e.target.value) || 0)}
+                                    className="w-28 border border-gray-200 rounded px-2 py-1 text-sm font-medium text-gray-800 focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
+                                </div>
+                                <div>
+                                  <label className="text-gray-500 text-xs block mb-0.5">BTW</label>
+                                  <input type="number" step="0.01"
+                                    value={bookModalVatAmount !== null ? bookModalVatAmount : modalInv.vatAmount}
+                                    onChange={(e) => setBookModalVatAmount(parseFloat(e.target.value) || 0)}
+                                    className="w-28 border border-gray-200 rounded px-2 py-1 text-sm font-medium text-gray-800 focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
+                                </div>
+                                <div>
+                                  <span className="text-gray-500 text-xs block mb-0.5">Totaal</span>
+                                  <span className="font-bold text-gray-900 text-sm block py-1">
+                                    {formatCurrency((bookModalSubtotal !== null ? bookModalSubtotal : modalInv.subtotal) + (bookModalVatAmount !== null ? bookModalVatAmount : modalInv.vatAmount))}
+                                  </span>
+                                </div>
                               </div>
                             </div>
 

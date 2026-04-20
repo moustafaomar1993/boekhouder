@@ -70,6 +70,14 @@ function InvoiceReviewInner({ id }: { id: string }) {
   const [showCreditModal, setShowCreditModal] = useState(false);
   const [creditLoading, setCreditLoading] = useState(false);
 
+  // Editable factuurgegevens state
+  const [editingDetails, setEditingDetails] = useState(false);
+  const [editDate, setEditDate] = useState("");
+  const [editDueDate, setEditDueDate] = useState("");
+  const [editCustomerName, setEditCustomerName] = useState("");
+  const [editCustomerAddress, setEditCustomerAddress] = useState("");
+  const [savingDetails, setSavingDetails] = useState(false);
+
   // Processing-focused state (Boeken)
   const [ledgerAccounts, setLedgerAccounts] = useState<LedgerAccountData[]>([]);
   const [ledgerSearch, setLedgerSearch] = useState("");
@@ -105,11 +113,9 @@ function InvoiceReviewInner({ id }: { id: string }) {
       }
     });
     fetch("/api/clients").then((r) => r.json()).then(setClients);
-    if (fromBoeken) {
-      fetch("/api/ledger-accounts").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setLedgerAccounts(d); }).catch(() => {});
-      fetch("/api/vat-codes").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setVatCodes(d); }).catch(() => {});
-    }
-  }, [id, fromBoeken]);
+    fetch("/api/ledger-accounts").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setLedgerAccounts(d); }).catch(() => {});
+    fetch("/api/vat-codes").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setVatCodes(d); }).catch(() => {});
+  }, [id]);
 
   // Fetch customer details and related invoices for debtor management
   useEffect(() => {
@@ -206,6 +212,39 @@ function InvoiceReviewInner({ id }: { id: string }) {
       }
     } catch { /* */ }
     finally { setCreditLoading(false); }
+  }
+
+  function startEditingDetails() {
+    if (!invoice) return;
+    setEditDate(invoice.date);
+    setEditDueDate(invoice.dueDate);
+    setEditCustomerName(invoice.customerName);
+    setEditCustomerAddress(invoice.customerAddress || "");
+    setEditingDetails(true);
+  }
+
+  async function saveDetails() {
+    if (!invoice) return;
+    setSavingDetails(true);
+    try {
+      const body: Record<string, string> = {};
+      if (editDate !== invoice.date) body.date = editDate;
+      if (editDueDate !== invoice.dueDate) body.dueDate = editDueDate;
+      if (editCustomerName !== invoice.customerName) body.customerName = editCustomerName;
+      if (editCustomerAddress !== (invoice.customerAddress || "")) body.customerAddress = editCustomerAddress;
+      if (Object.keys(body).length > 0) {
+        const res = await fetch(`/api/invoices/${id}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (res.ok) {
+          const updated = await res.json();
+          setInvoice(updated);
+        }
+      }
+      setEditingDetails(false);
+    } catch { /* */ }
+    finally { setSavingDetails(false); }
   }
 
   if (!invoice) {
@@ -313,15 +352,55 @@ function InvoiceReviewInner({ id }: { id: string }) {
             </div>
           </div>
 
-          {/* Invoice details grid */}
+          {/* Invoice details grid — editable */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-            <h2 className="text-sm font-semibold text-[#3C2C1E] mb-3">Factuurgegevens</h2>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-              <div><p className="text-gray-500 text-xs">Factuurdatum</p><p className="font-medium">{formatDate(invoice.date)}</p></div>
-              <div><p className="text-gray-500 text-xs">Vervaldatum</p><p className="font-medium">{formatDate(invoice.dueDate)}</p></div>
-              <div><p className="text-gray-500 text-xs">Debiteur</p><p className="font-medium">{invoice.customerName}</p></div>
-              <div><p className="text-gray-500 text-xs">Adres</p><p className="font-medium text-xs">{invoice.customerAddress}</p></div>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-[#3C2C1E]">Factuurgegevens</h2>
+              {!editingDetails ? (
+                <button onClick={startEditingDetails} className="text-xs text-[#00AFCB] hover:text-[#004854] font-medium flex items-center gap-1">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                  Bewerken
+                </button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setEditingDetails(false)} className="text-xs text-gray-500 hover:text-gray-700 font-medium">Annuleren</button>
+                  <button onClick={saveDetails} disabled={savingDetails} className="text-xs bg-[#00AFCB] text-white px-3 py-1 rounded-lg font-medium hover:bg-[#008FA8] disabled:opacity-50">
+                    {savingDetails ? "Opslaan..." : "Opslaan"}
+                  </button>
+                </div>
+              )}
             </div>
+            {editingDetails ? (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <label className="text-gray-500 text-xs block mb-1">Factuurdatum</label>
+                  <input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
+                </div>
+                <div>
+                  <label className="text-gray-500 text-xs block mb-1">Vervaldatum</label>
+                  <input type="date" value={editDueDate} onChange={(e) => setEditDueDate(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
+                </div>
+                <div>
+                  <label className="text-gray-500 text-xs block mb-1">Debiteur</label>
+                  <input type="text" value={editCustomerName} onChange={(e) => setEditCustomerName(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
+                </div>
+                <div>
+                  <label className="text-gray-500 text-xs block mb-1">Adres</label>
+                  <input type="text" value={editCustomerAddress} onChange={(e) => setEditCustomerAddress(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                <div><p className="text-gray-500 text-xs">Factuurdatum</p><p className="font-medium">{formatDate(invoice.date)}</p></div>
+                <div><p className="text-gray-500 text-xs">Vervaldatum</p><p className="font-medium">{formatDate(invoice.dueDate)}</p></div>
+                <div><p className="text-gray-500 text-xs">Debiteur</p><p className="font-medium">{invoice.customerName}</p></div>
+                <div><p className="text-gray-500 text-xs">Adres</p><p className="font-medium text-xs">{invoice.customerAddress}</p></div>
+              </div>
+            )}
           </div>
 
           {/* ══ BOOKKEEPING PROCESSING ══ */}
@@ -760,15 +839,55 @@ function InvoiceReviewInner({ id }: { id: string }) {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           {/* Left column: invoice details */}
           <div className="lg:col-span-2 space-y-5">
-            {/* Invoice info grid */}
+            {/* Invoice info grid — editable */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-              <h2 className="text-sm font-semibold text-[#3C2C1E] mb-3">Factuurgegevens</h2>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-                <div><p className="text-gray-500 text-xs">Factuurdatum</p><p className="font-medium">{formatDate(invoice.date)}</p></div>
-                <div><p className="text-gray-500 text-xs">Vervaldatum</p><p className="font-medium">{formatDate(invoice.dueDate)}</p></div>
-                <div><p className="text-gray-500 text-xs">Debiteur</p><p className="font-medium">{invoice.customerName}</p></div>
-                <div><p className="text-gray-500 text-xs">Adres</p><p className="font-medium text-xs">{invoice.customerAddress}</p></div>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold text-[#3C2C1E]">Factuurgegevens</h2>
+                {!editingDetails ? (
+                  <button onClick={startEditingDetails} className="text-xs text-[#00AFCB] hover:text-[#004854] font-medium flex items-center gap-1">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                    Bewerken
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setEditingDetails(false)} className="text-xs text-gray-500 hover:text-gray-700 font-medium">Annuleren</button>
+                    <button onClick={saveDetails} disabled={savingDetails} className="text-xs bg-[#00AFCB] text-white px-3 py-1 rounded-lg font-medium hover:bg-[#008FA8] disabled:opacity-50">
+                      {savingDetails ? "Opslaan..." : "Opslaan"}
+                    </button>
+                  </div>
+                )}
               </div>
+              {editingDetails ? (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                  <div>
+                    <label className="text-gray-500 text-xs block mb-1">Factuurdatum</label>
+                    <input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
+                  </div>
+                  <div>
+                    <label className="text-gray-500 text-xs block mb-1">Vervaldatum</label>
+                    <input type="date" value={editDueDate} onChange={(e) => setEditDueDate(e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
+                  </div>
+                  <div>
+                    <label className="text-gray-500 text-xs block mb-1">Debiteur</label>
+                    <input type="text" value={editCustomerName} onChange={(e) => setEditCustomerName(e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
+                  </div>
+                  <div>
+                    <label className="text-gray-500 text-xs block mb-1">Adres</label>
+                    <input type="text" value={editCustomerAddress} onChange={(e) => setEditCustomerAddress(e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                  <div><p className="text-gray-500 text-xs">Factuurdatum</p><p className="font-medium">{formatDate(invoice.date)}</p></div>
+                  <div><p className="text-gray-500 text-xs">Vervaldatum</p><p className="font-medium">{formatDate(invoice.dueDate)}</p></div>
+                  <div><p className="text-gray-500 text-xs">Debiteur</p><p className="font-medium">{invoice.customerName}</p></div>
+                  <div><p className="text-gray-500 text-xs">Adres</p><p className="font-medium text-xs">{invoice.customerAddress}</p></div>
+                </div>
+              )}
             </div>
 
             {/* Invoice lines */}
@@ -803,31 +922,221 @@ function InvoiceReviewInner({ id }: { id: string }) {
               </div>
             </div>
 
-            {/* Bookkeeping processing */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-              <h2 className="text-sm font-semibold text-[#3C2C1E] mb-4">Boekhouding verwerking</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Categorie</label>
-                  <select value={category} onChange={(e) => setCategory(e.target.value)}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none">
-                    {CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Status</label>
-                  <div className="flex items-center gap-2 py-2">
-                    <StatusBadge status={invoice.bookkeepingStatus} />
-                    {invoice.category && <span className="text-xs text-gray-400">{invoice.category}</span>}
+            {/* Bookkeeping processing — with ledger/VAT search */}
+            <div className="bg-white rounded-xl shadow-sm border-2 border-[#00AFCB]/20 p-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                <h2 className="text-sm font-semibold text-[#3C2C1E] flex items-center gap-2">
+                  <svg className="w-5 h-5 text-[#00AFCB]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+                  Boekhouding verwerking
+                </h2>
+                {/* Mode toggle for multi-line invoices */}
+                {hasMultipleLines && canBook && (
+                  <div className="flex bg-gray-100 p-0.5 rounded-lg">
+                    <button onClick={() => setBookingMode("invoice")}
+                      className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${bookingMode === "invoice" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+                      Hele factuur
+                    </button>
+                    <button onClick={() => setBookingMode("line")}
+                      className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${bookingMode === "line" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+                      Per regel
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Current status */}
+              <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-100">
+                <StatusBadge status={invoice.bookkeepingStatus} />
+                {invoice.category && <span className="text-xs text-gray-400">{invoice.category}</span>}
+                {invoice.vatType && <span className="text-xs text-blue-500">BTW: {invoice.vatType}</span>}
+              </div>
+
+              {/* Invoice-level booking */}
+              {bookingMode === "invoice" && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                  {/* Ledger account search */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Grootboekrekening</label>
+                    <div className="relative">
+                      <input type="text" value={ledgerSearch}
+                        onChange={(e) => { setLedgerSearch(e.target.value); setSelectedLedger(""); }}
+                        placeholder="Typ nummer of naam..."
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
+                      {ledgerSearch && !selectedLedger && filteredLedgerAccounts.length > 0 && (
+                        <div className="absolute z-50 w-72 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
+                          {filteredLedgerAccounts.slice(0, 15).map((a: LedgerAccountData) => (
+                            <button key={a.id} type="button"
+                              onClick={() => {
+                                setSelectedLedger(`${a.accountNumber} ${a.name}`);
+                                setLedgerSearch(`${a.accountNumber} - ${a.name}`);
+                                if (a.defaultVatCode && !selectedVat) {
+                                  setSelectedVat(`${a.defaultVatCode.code} ${a.defaultVatCode.name} ${a.defaultVatCode.percentage}%`);
+                                  setVatSearch(`${a.defaultVatCode.code} - ${a.defaultVatCode.name} (${a.defaultVatCode.percentage}%)`);
+                                }
+                              }}
+                              className="w-full text-left px-3 py-2.5 hover:bg-gray-50 text-sm flex items-center gap-2 border-b border-gray-50 last:border-0">
+                              <span className="font-mono text-xs text-gray-400 w-10 shrink-0">{a.accountNumber}</span>
+                              <span className="text-gray-700 truncate">{a.name}</span>
+                              {a.defaultVatCode && <span className="ml-auto text-[10px] text-gray-400 shrink-0">{a.defaultVatCode.code}</span>}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    {selectedLedger && <p className="text-xs text-emerald-600 mt-1.5 flex items-center gap-1"><svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>{selectedLedger}</p>}
+                  </div>
+                  {/* VAT code search */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">BTW-code</label>
+                    <div className="relative">
+                      <input type="text" value={vatSearch}
+                        onChange={(e) => { setVatSearch(e.target.value); setSelectedVat(""); }}
+                        placeholder="Zoek BTW-code..."
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
+                      {vatSearch && !selectedVat && filteredVatCodes.length > 0 && (
+                        <div className="absolute z-50 w-64 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
+                          {filteredVatCodes.map((v) => (
+                            <button key={v.id} type="button"
+                              onClick={() => { setSelectedVat(`${v.code} ${v.name} ${v.percentage}%`); setVatSearch(`${v.code} - ${v.name} (${v.percentage}%)`); }}
+                              className="w-full text-left px-3 py-2.5 hover:bg-gray-50 text-sm flex items-center gap-2 border-b border-gray-50 last:border-0">
+                              <span className="font-mono text-xs text-blue-600 w-12 shrink-0">{v.code}</span>
+                              <span className="text-gray-700 truncate">{v.name}</span>
+                              <span className="ml-auto text-xs text-gray-400 shrink-0">{v.percentage}%</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    {selectedVat && <p className="text-xs text-blue-600 mt-1.5 flex items-center gap-1"><svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>{selectedVat}</p>}
                   </div>
                 </div>
-              </div>
+              )}
+
+              {/* Line-level booking */}
+              {bookingMode === "line" && (
+                <div className="mb-4">
+                  <p className="text-xs text-gray-500 mb-3">Kies per factuurlijn een grootboekrekening en BTW-code.</p>
+                  <div className="space-y-3">
+                    {invoice.items.map((item) => {
+                      const lb = lineBookings[item.id] || { ledger: "", ledgerSearch: "", vatCode: "", vatSearch: "" };
+                      const lineLedgerResults = filterLedgerForLine(lb.ledgerSearch);
+                      const lineVatResults = filterVatForLine(lb.vatSearch);
+                      const lineTotal = item.quantity * item.unitPrice;
+                      return (
+                        <div key={item.id} className="border border-gray-100 rounded-xl p-4 space-y-3">
+                          <div className="flex justify-between items-start gap-3">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-gray-800">{item.description}</p>
+                              <p className="text-xs text-gray-500 mt-0.5">{item.quantity} x {formatCurrency(item.unitPrice)} · {item.vatRate}% BTW</p>
+                            </div>
+                            <p className="text-sm font-bold text-[#3C2C1E] shrink-0">{formatCurrency(lineTotal)}</p>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-[10px] text-gray-500 uppercase tracking-wider mb-1">Grootboekrekening</label>
+                              <div className="relative">
+                                <input type="text" value={lb.ledgerSearch}
+                                  onChange={(e) => { updateLineLedger(item.id, "ledgerSearch", e.target.value); updateLineLedger(item.id, "ledger", ""); setActiveLineDrop(`ledger-${item.id}`); }}
+                                  onFocus={() => setActiveLineDrop(`ledger-${item.id}`)}
+                                  onBlur={() => setTimeout(() => setActiveLineDrop(null), 200)}
+                                  placeholder="Typ nummer of naam..."
+                                  className={`w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#00AFCB]/30 ${lb.ledger ? "border-emerald-300 bg-emerald-50" : "border-gray-200"}`} />
+                                {activeLineDrop === `ledger-${item.id}` && lb.ledgerSearch && !lb.ledger && lineLedgerResults.length > 0 && (
+                                  <div className="absolute z-50 w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-40 overflow-y-auto">
+                                    {lineLedgerResults.slice(0, 10).map((a) => (
+                                      <button key={a.id} type="button" onMouseDown={(e) => e.preventDefault()}
+                                        onClick={() => {
+                                          updateLineLedger(item.id, "ledger", `${a.accountNumber} ${a.name}`);
+                                          updateLineLedger(item.id, "ledgerSearch", `${a.accountNumber} - ${a.name}`);
+                                          if (a.defaultVatCode && !lb.vatCode) {
+                                            updateLineLedger(item.id, "vatCode", `${a.defaultVatCode.code} ${a.defaultVatCode.name} ${a.defaultVatCode.percentage}%`);
+                                            updateLineLedger(item.id, "vatSearch", `${a.defaultVatCode.code} - ${a.defaultVatCode.name} (${a.defaultVatCode.percentage}%)`);
+                                          }
+                                          setActiveLineDrop(null);
+                                        }}
+                                        className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm flex items-center gap-2">
+                                        <span className="font-mono text-xs text-gray-400 w-10 shrink-0">{a.accountNumber}</span>
+                                        <span className="text-gray-700 truncate">{a.name}</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-[10px] text-gray-500 uppercase tracking-wider mb-1">BTW-code</label>
+                              <div className="relative">
+                                <input type="text" value={lb.vatSearch}
+                                  onChange={(e) => { updateLineLedger(item.id, "vatSearch", e.target.value); updateLineLedger(item.id, "vatCode", ""); setActiveLineDrop(`vat-${item.id}`); }}
+                                  onFocus={() => setActiveLineDrop(`vat-${item.id}`)}
+                                  onBlur={() => setTimeout(() => setActiveLineDrop(null), 200)}
+                                  placeholder="Zoek BTW-code..."
+                                  className={`w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[#00AFCB]/30 ${lb.vatCode ? "border-blue-300 bg-blue-50" : "border-gray-200"}`} />
+                                {activeLineDrop === `vat-${item.id}` && lb.vatSearch && !lb.vatCode && lineVatResults.length > 0 && (
+                                  <div className="absolute z-50 w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-40 overflow-y-auto">
+                                    {lineVatResults.map((v) => (
+                                      <button key={v.id} type="button" onMouseDown={(e) => e.preventDefault()}
+                                        onClick={() => {
+                                          updateLineLedger(item.id, "vatCode", `${v.code} ${v.name} ${v.percentage}%`);
+                                          updateLineLedger(item.id, "vatSearch", `${v.code} - ${v.name} (${v.percentage}%)`);
+                                          setActiveLineDrop(null);
+                                        }}
+                                        className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm flex items-center gap-2">
+                                        <span className="font-mono text-xs text-blue-600 w-12 shrink-0">{v.code}</span>
+                                        <span className="text-gray-700 truncate">{v.name}</span>
+                                        <span className="ml-auto text-xs text-gray-400 shrink-0">{v.percentage}%</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Booking preview */}
+              {bookingMode === "invoice" && selectedLedger && canBook && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-4 space-y-0.5">
+                  <p className="text-xs text-emerald-800"><span className="font-medium">{invoice.invoiceNumber}</span> wordt geboekt op <span className="font-medium">{selectedLedger}</span> · Bedrag: <span className="font-medium">{formatCurrency(invoice.total)}</span></p>
+                  {selectedVat && <p className="text-xs text-emerald-700">BTW-code: <span className="font-medium">{selectedVat}</span></p>}
+                </div>
+              )}
+
+              {/* Per-line overview */}
+              {bookingMode === "line" && allLinesFilled && canBook && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-4">
+                  <p className="text-[10px] text-emerald-700 uppercase tracking-wider font-medium mb-2">Boekingsoverzicht per regel</p>
+                  <div className="space-y-1">
+                    {invoice.items.map((item) => {
+                      const lb = lineBookings[item.id];
+                      return (
+                        <div key={item.id} className="flex flex-col sm:flex-row sm:items-center gap-1 text-xs text-emerald-800 py-1 border-b border-emerald-200/50 last:border-0">
+                          <span className="font-medium min-w-0 truncate sm:w-1/4">{item.description}</span>
+                          <span className="text-emerald-600 sm:w-1/4 truncate">{lb?.ledger || "—"}</span>
+                          <span className="text-blue-600 sm:w-1/4 truncate">{lb?.vatCode || "—"}</span>
+                          <span className="font-medium sm:w-1/4 sm:text-right">{formatCurrency(item.quantity * item.unitPrice)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {invoice.notes && (
                 <div className="mb-4 p-3 bg-gray-50 rounded-lg"><p className="text-xs text-gray-500 mb-0.5">Opmerkingen</p><p className="text-sm">{invoice.notes}</p></div>
               )}
+
               <div className="flex flex-wrap gap-2">
-                {(invoice.bookkeepingStatus === "pending" || invoice.bookkeepingStatus === "to_book" || invoice.bookkeepingStatus === "processing") && (
-                  <button onClick={() => updateStatus("booked")} disabled={saving} className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">Boeken</button>
+                {canBook && (
+                  <button onClick={() => updateStatus("booked")} disabled={saving || !allLinesFilled}
+                    className="px-5 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+                    {saving ? "Boeken..." : bookingMode === "line" ? `${invoice.items.length} regels boeken` : "Factuur boeken"}
+                  </button>
                 )}
                 {(invoice.bookkeepingStatus === "booked" || invoice.bookkeepingStatus === "processed") && (
                   <button onClick={() => updateStatus("to_book")} disabled={saving} className="px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50">Heropenen</button>

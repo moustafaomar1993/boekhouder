@@ -59,6 +59,32 @@ export async function PATCH(
     invoice = await prisma.invoice.findUnique({ where: { id }, include: { items: true } });
   }
 
+  // Handle editable invoice fields (factuurgegevens)
+  const directUpdates: Record<string, unknown> = {};
+  if (body.date !== undefined) directUpdates.date = body.date;
+  if (body.dueDate !== undefined) directUpdates.dueDate = body.dueDate;
+  if (body.customerName !== undefined) directUpdates.customerName = body.customerName;
+  if (body.customerAddress !== undefined) directUpdates.customerAddress = body.customerAddress;
+  if (body.subtotal !== undefined) directUpdates.subtotal = Number(body.subtotal);
+  if (body.vatAmount !== undefined) directUpdates.vatAmount = Number(body.vatAmount);
+  if (body.notes !== undefined) directUpdates.notes = body.notes;
+  if (body.subtotal !== undefined || body.vatAmount !== undefined) {
+    const current = await prisma.invoice.findUnique({ where: { id } });
+    if (current) {
+      const newSubtotal = body.subtotal !== undefined ? Number(body.subtotal) : current.subtotal;
+      const newVat = body.vatAmount !== undefined ? Number(body.vatAmount) : current.vatAmount;
+      directUpdates.total = newSubtotal + newVat;
+    }
+  }
+
+  if (Object.keys(directUpdates).length > 0) {
+    invoice = await prisma.invoice.update({
+      where: { id },
+      data: directUpdates,
+      include: { items: true },
+    });
+  }
+
   if (!invoice) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(invoice);
 }
