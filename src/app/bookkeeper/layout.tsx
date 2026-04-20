@@ -164,8 +164,8 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
                 {linkEl}
                 {verkoopHover && openInvoices.length > 0 && verkoopPopupPos && typeof window !== "undefined" && window.innerWidth >= 1024 && createPortal(
                   <div ref={verkoopPopupRef}
-                    className="fixed w-72 bg-white rounded-r-xl rounded-bl-xl shadow-xl border border-gray-200 border-l-0 z-[9999] py-2 max-h-[360px] overflow-y-auto"
-                    style={{ top: verkoopPopupPos.top, left: verkoopPopupPos.left }}
+                    className="fixed w-72 bg-white rounded-r-xl rounded-bl-xl shadow-[4px_4px_20px_-2px_rgba(0,0,0,0.12)] border border-gray-200 border-l-0 z-[9999] py-2 max-h-[360px] overflow-y-auto"
+                    style={{ top: verkoopPopupPos.top, left: verkoopPopupPos.left - 1 }}
                     onMouseEnter={() => { if (verkoopHoverTimeout.current) clearTimeout(verkoopHoverTimeout.current); }}
                     onMouseLeave={() => { verkoopHoverTimeout.current = setTimeout(() => setVerkoopHover(false), 200); }}>
                     <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Openstaand ({openInvoices.length}{openInvoices.length >= 8 ? "+" : ""})</p>
