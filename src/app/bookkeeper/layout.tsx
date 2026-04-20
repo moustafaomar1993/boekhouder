@@ -155,8 +155,8 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
                   if (verkoopHoverTimeout.current) clearTimeout(verkoopHoverTimeout.current);
                   if (verkoopLinkRef.current) {
                     const rect = verkoopLinkRef.current.getBoundingClientRect();
-                    // Position popup to the right of the sidebar (250px wide + 8px gap)
-                    setVerkoopPopupPos({ top: rect.top, left: 258 });
+                    // Flush against the sidebar right edge, aligned with the Verkoop link top
+                    setVerkoopPopupPos({ top: rect.top, left: 250 });
                   }
                   setVerkoopHover(true);
                 }}
@@ -164,7 +164,7 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
                 {linkEl}
                 {verkoopHover && openInvoices.length > 0 && verkoopPopupPos && typeof window !== "undefined" && window.innerWidth >= 1024 && createPortal(
                   <div ref={verkoopPopupRef}
-                    className="fixed w-72 bg-white rounded-xl shadow-xl border border-gray-200 z-[9999] py-2 max-h-[360px] overflow-y-auto"
+                    className="fixed w-72 bg-white rounded-r-xl rounded-bl-xl shadow-xl border border-gray-200 border-l-0 z-[9999] py-2 max-h-[360px] overflow-y-auto"
                     style={{ top: verkoopPopupPos.top, left: verkoopPopupPos.left }}
                     onMouseEnter={() => { if (verkoopHoverTimeout.current) clearTimeout(verkoopHoverTimeout.current); }}
                     onMouseLeave={() => { verkoopHoverTimeout.current = setTimeout(() => setVerkoopHover(false), 200); }}>
