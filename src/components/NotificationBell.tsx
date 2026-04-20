@@ -104,7 +104,7 @@ export default function NotificationBell({ variant = "dark" }: { variant?: "dark
   const [unreadCount, setUnreadCount] = useState(0);
   const [filter, setFilter] = useState<"all" | "unread" | "important">("all");
   const [loading, setLoading] = useState(false);
-  const [dropdownPos, setDropdownPos] = useState<{ top: number; right: number } | null>(null);
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const bellRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -180,7 +180,9 @@ export default function NotificationBell({ variant = "dark" }: { variant?: "dark
         onClick={() => {
           if (!open && bellRef.current) {
             const rect = bellRef.current.getBoundingClientRect();
-            setDropdownPos({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
+            const dropW = Math.min(400, window.innerWidth - 24);
+            const left = Math.min(Math.max(rect.right - dropW, 12), window.innerWidth - dropW - 12);
+            setDropdownPos({ top: rect.bottom + 8, left });
           }
           setOpen(!open);
           if (!open) fetchNotifications();
@@ -205,7 +207,7 @@ export default function NotificationBell({ variant = "dark" }: { variant?: "dark
 
       {/* Dropdown panel via portal */}
       {open && dropdownPos && createPortal(
-        <div ref={dropdownRef} className="fixed w-[400px] max-w-[calc(100vw-24px)] bg-white rounded-2xl shadow-2xl border border-gray-200 z-[9999] overflow-hidden animate-dropdown-enter sm:right-auto" style={{ top: dropdownPos.top, right: Math.max(dropdownPos.right, 12) }}>
+        <div ref={dropdownRef} className="fixed w-[400px] max-w-[calc(100vw-24px)] bg-white rounded-2xl shadow-2xl border border-gray-200 z-[9999] overflow-hidden animate-dropdown-enter" style={{ top: dropdownPos.top, left: dropdownPos.left }}>
           {/* Header */}
           <div className="px-5 pt-4 pb-3 border-b border-gray-100">
             <div className="flex items-center justify-between mb-3">
