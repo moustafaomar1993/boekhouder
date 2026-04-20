@@ -1274,9 +1274,10 @@ function BookkeeperContent() {
 
                     {/* Boekingsvoortgang popup */}
                     {showVoortgang && (() => {
-                      const fullyProcessed = clientTiles.filter((c) => c.progress === 100).length;
-                      const partiallyProcessed = clientTiles.filter((c) => c.progress > 0 && c.progress < 100).length;
+                      const fullyBooked = clientTiles.filter((c) => c.progress === 100).length;
+                      const partiallyBooked = clientTiles.filter((c) => c.progress > 0 && c.progress < 100).length;
                       const notStarted = clientTiles.filter((c) => c.progress === 0).length;
+                      const totalClients = clientTiles.length;
 
                       // Time & productivity calculations
                       const sessionDurationMs = Date.now() - sessionStartTime;
@@ -1286,7 +1287,12 @@ function BookkeeperContent() {
                       const sessionDurationStr = sessionHours > 0 ? `${sessionHours}u ${sessionMinRemainder}m` : `${sessionMinutes}m`;
 
                       const btValues = Object.values(bookingTimes);
-                      const avgBookingMs = btValues.length > 0 ? btValues.reduce((s, v) => s + v, 0) / btValues.length : 0;
+                      const totalBookingMs = btValues.length > 0 ? btValues.reduce((s, v) => s + v, 0) : 0;
+                      const totalBookingSec = Math.round(totalBookingMs / 1000);
+                      const totalBookingStr = totalBookingMs > 0
+                        ? (totalBookingSec >= 60 ? `${Math.floor(totalBookingSec / 60)}m ${totalBookingSec % 60}s` : `${totalBookingSec}s`)
+                        : "\u2014";
+                      const avgBookingMs = btValues.length > 0 ? totalBookingMs / btValues.length : 0;
                       const avgBookingSec = Math.round(avgBookingMs / 1000);
                       const avgBookingStr = btValues.length > 0
                         ? (avgBookingSec >= 60 ? `${Math.floor(avgBookingSec / 60)}m ${avgBookingSec % 60}s` : `${avgBookingSec}s`)
@@ -1295,13 +1301,38 @@ function BookkeeperContent() {
                       const facturenPerUur = sessionMinutes > 0 && sessionBookedCount > 0
                         ? Math.round((sessionBookedCount / sessionMinutes) * 60)
                         : 0;
+                      const klantenPerUur = sessionMinutes > 0 && fullyBooked > 0
+                        ? (fullyBooked / (sessionMinutes / 60)).toFixed(1)
+                        : "\u2014";
 
-                      // Per-client booking times
+                      // Per-client booking times + count of invoices booked per client
                       const clientBookingTimeMap: Record<string, number> = {};
+                      const clientBookedCountMap: Record<string, number> = {};
                       for (const inv of invoices) {
                         if (bookingTimes[inv.id]) {
                           clientBookingTimeMap[inv.clientId] = (clientBookingTimeMap[inv.clientId] || 0) + bookingTimes[inv.id];
+                          clientBookedCountMap[inv.clientId] = (clientBookedCountMap[inv.clientId] || 0) + 1;
                         }
+                      }
+
+                      // Fastest / slowest fully-booked client (by avg time per invoice)
+                      const completedWithTime = clientTiles
+                        .filter((c) => c.progress === 100 && clientBookingTimeMap[c.id])
+                        .map((c) => ({
+                          ...c,
+                          totalTime: clientBookingTimeMap[c.id],
+                          avgTime: clientBookingTimeMap[c.id] / (clientBookedCountMap[c.id] || 1),
+                        }));
+                      const fastest = completedWithTime.length > 0
+                        ? completedWithTime.reduce((a, b) => a.avgTime < b.avgTime ? a : b)
+                        : null;
+                      const slowest = completedWithTime.length > 1
+                        ? completedWithTime.reduce((a, b) => a.avgTime > b.avgTime ? a : b)
+                        : null;
+
+                      function fmtMs(ms: number) {
+                        const s = Math.round(ms / 1000);
+                        return s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
                       }
 
                       const sortedClientTiles = [...clientTiles].sort((a, b) => {
@@ -1314,19 +1345,19 @@ function BookkeeperContent() {
                         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowVoortgang(false)}>
                           <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
                             {/* Header */}
-                            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+                            <div className="px-5 sm:px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
                               <h3 className="text-base font-semibold text-[#3C2C1E]">Boekingsvoortgang</h3>
                               <button onClick={() => setShowVoortgang(false)} className="p-1 hover:bg-gray-100 rounded-lg">
                                 <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                               </button>
                             </div>
 
-                            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                            <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
                               {/* Section 1: Overzicht */}
                               <div>
                                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Overzicht</p>
-                                <div className="text-center">
-                                  <div className="relative w-24 h-24 mx-auto mb-3">
+                                <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
+                                  <div className="relative w-24 h-24 shrink-0">
                                     <svg className="w-24 h-24 transform -rotate-90" viewBox="0 0 100 100">
                                       <circle cx="50" cy="50" r="42" fill="none" stroke="#e5e7eb" strokeWidth="8" />
                                       <circle cx="50" cy="50" r="42" fill="none" stroke="#10b981" strokeWidth="8" strokeDasharray={`${vOverallProgress * 2.64} 264`} strokeLinecap="round" />
@@ -1335,7 +1366,11 @@ function BookkeeperContent() {
                                       <span className="text-2xl font-bold text-[#004854]">{vOverallProgress}%</span>
                                     </div>
                                   </div>
-                                  <p className="text-sm text-gray-600">{vTotalBooked} van {vTotalAll} facturen geboekt</p>
+                                  <div className="text-center sm:text-left space-y-1">
+                                    <p className="text-sm font-medium text-gray-800">{vTotalBooked} van {vTotalAll} facturen geboekt</p>
+                                    <p className="text-xs text-gray-500">{fullyBooked} van {totalClients} klanten volledig geboekt</p>
+                                    {vTotalOpen > 0 && <p className="text-xs text-blue-600 font-medium">{vTotalOpen} facturen nog open</p>}
+                                  </div>
                                 </div>
                               </div>
 
@@ -1344,12 +1379,12 @@ function BookkeeperContent() {
                                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Statistieken</p>
                                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-center">
                                   <div className="bg-emerald-50 rounded-lg p-3">
-                                    <p className="text-lg font-bold text-emerald-600">{fullyProcessed}</p>
+                                    <p className="text-lg font-bold text-emerald-600">{fullyBooked}</p>
                                     <p className="text-[10px] text-emerald-700 font-medium">Volledig geboekt</p>
                                   </div>
                                   <div className="bg-blue-50 rounded-lg p-3">
-                                    <p className="text-lg font-bold text-blue-600">{partiallyProcessed}</p>
-                                    <p className="text-[10px] text-blue-700 font-medium">Bezig</p>
+                                    <p className="text-lg font-bold text-blue-600">{partiallyBooked}</p>
+                                    <p className="text-[10px] text-blue-700 font-medium">Deels geboekt</p>
                                   </div>
                                   <div className="bg-gray-50 rounded-lg p-3">
                                     <p className="text-lg font-bold text-gray-500">{notStarted}</p>
@@ -1379,6 +1414,14 @@ function BookkeeperContent() {
                                     <p className="text-[10px] text-gray-600 font-medium">Sessie duur</p>
                                   </div>
                                   <div className="bg-white border border-gray-100 rounded-lg p-3">
+                                    <p className="text-lg font-bold text-[#004854]">{totalBookingStr}</p>
+                                    <p className="text-[10px] text-gray-600 font-medium">Totaal boektijd</p>
+                                  </div>
+                                  <div className="bg-white border border-gray-100 rounded-lg p-3">
+                                    <p className="text-lg font-bold text-[#004854]">{avgBookingStr}</p>
+                                    <p className="text-[10px] text-gray-600 font-medium">Gem. per factuur</p>
+                                  </div>
+                                  <div className="bg-white border border-gray-100 rounded-lg p-3">
                                     <p className="text-lg font-bold text-[#00AFCB]">{sessionBookedCount}</p>
                                     <p className="text-[10px] text-gray-600 font-medium">Geboekt deze sessie</p>
                                   </div>
@@ -1387,42 +1430,61 @@ function BookkeeperContent() {
                                     <p className="text-[10px] text-gray-600 font-medium">Geboekt vandaag</p>
                                   </div>
                                   <div className="bg-white border border-gray-100 rounded-lg p-3">
-                                    <p className="text-lg font-bold text-[#004854]">{avgBookingStr}</p>
-                                    <p className="text-[10px] text-gray-600 font-medium">Gem. per factuur</p>
-                                  </div>
-                                  <div className="bg-white border border-gray-100 rounded-lg p-3">
                                     <p className="text-lg font-bold text-[#004854]">{facturenPerUur > 0 ? facturenPerUur : "\u2014"}</p>
-                                    <p className="text-[10px] text-gray-600 font-medium">Facturen per uur</p>
+                                    <p className="text-[10px] text-gray-600 font-medium">Facturen / uur</p>
                                   </div>
                                   <div className="bg-white border border-gray-100 rounded-lg p-3">
-                                    <p className="text-lg font-bold text-[#004854]">{"\u2014"}</p>
-                                    <p className="text-[10px] text-gray-600 font-medium">Klanten per uur</p>
+                                    <p className="text-lg font-bold text-[#004854]">{klantenPerUur}</p>
+                                    <p className="text-[10px] text-gray-600 font-medium">Klanten / uur</p>
                                   </div>
+                                  {fastest && (
+                                    <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3">
+                                      <p className="text-sm font-bold text-emerald-600 truncate" title={fastest.name}>{fmtMs(fastest.avgTime)}</p>
+                                      <p className="text-[10px] text-emerald-700 font-medium truncate" title={fastest.name}>Snelste: {fastest.name}</p>
+                                    </div>
+                                  )}
+                                  {slowest && slowest.id !== fastest?.id && (
+                                    <div className="bg-amber-50 border border-amber-100 rounded-lg p-3">
+                                      <p className="text-sm font-bold text-amber-600 truncate" title={slowest.name}>{fmtMs(slowest.avgTime)}</p>
+                                      <p className="text-[10px] text-amber-700 font-medium truncate" title={slowest.name}>Traagste: {slowest.name}</p>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
 
                               {/* Section 4: Per klant */}
                               <div>
-                                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Per klant</p>
-                                <div className="space-y-2">
+                                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Per klant ({totalClients})</p>
+                                <div className="space-y-2 max-h-[280px] overflow-y-auto">
                                   {sortedClientTiles.map((c) => {
-                                    const statusLabel = c.progress === 100 ? "Volledig" : c.progress > 0 ? "Bezig" : "Niet gestart";
+                                    const statusLabel = c.progress === 100 ? "Volledig geboekt" : c.progress > 0 ? "Deels geboekt" : "Niet gestart";
                                     const statusClass = c.progress === 100 ? "bg-emerald-100 text-emerald-700" : c.progress > 0 ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-600";
                                     const clientTimeMs = clientBookingTimeMap[c.id] || 0;
                                     const clientTimeSec = Math.round(clientTimeMs / 1000);
                                     const clientTimeStr = clientTimeMs > 0
                                       ? (clientTimeSec >= 60 ? `${Math.floor(clientTimeSec / 60)}m ${clientTimeSec % 60}s` : `${clientTimeSec}s`)
                                       : "\u2014";
+                                    const clientAvgMs = clientBookedCountMap[c.id] && clientTimeMs > 0
+                                      ? clientTimeMs / clientBookedCountMap[c.id]
+                                      : 0;
+                                    const clientAvgStr = clientAvgMs > 0 ? fmtMs(clientAvgMs) : "";
                                     return (
-                                      <div key={c.id} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 bg-white border border-gray-100 rounded-lg p-3">
-                                        <span className="text-xs font-medium text-gray-800 flex-1 min-w-0 truncate">{c.name}</span>
-                                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold ${statusClass} shrink-0 w-fit`}>{statusLabel}</span>
-                                        <span className="text-[11px] text-gray-500 shrink-0">{c.booked}/{c.total}</span>
-                                        <div className="w-20 bg-gray-100 rounded-full h-1.5 shrink-0 hidden sm:block">
-                                          <div className={`h-1.5 rounded-full ${c.progress === 100 ? "bg-emerald-500" : c.progress > 50 ? "bg-emerald-400" : "bg-[#00AFCB]"}`} style={{ width: `${c.progress}%` }} />
+                                      <div key={c.id} className={`rounded-lg border p-3 ${c.progress === 100 ? "bg-emerald-50/50 border-emerald-100" : "bg-white border-gray-100"}`}>
+                                        <div className="flex items-center gap-2 mb-2">
+                                          <span className="text-xs font-medium text-gray-800 flex-1 min-w-0 truncate">{c.name}</span>
+                                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[9px] font-semibold ${statusClass} shrink-0`}>{statusLabel}</span>
                                         </div>
-                                        <span className="text-[10px] text-gray-400 shrink-0 hidden sm:block">{clientTimeStr}</span>
-                                        <span className="text-[10px] font-medium text-gray-600 w-8 text-right shrink-0">{c.progress}%</span>
+                                        <div className="flex items-center gap-2 mb-1.5">
+                                          <div className="flex-1 bg-gray-100 rounded-full h-1.5">
+                                            <div className={`h-1.5 rounded-full ${c.progress === 100 ? "bg-emerald-500" : c.progress > 50 ? "bg-emerald-400" : "bg-[#00AFCB]"}`} style={{ width: `${c.progress}%` }} />
+                                          </div>
+                                          <span className="text-[10px] font-semibold text-gray-600 w-8 text-right shrink-0">{c.progress}%</span>
+                                        </div>
+                                        <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[10px] text-gray-500">
+                                          <span>{c.booked} geboekt / {c.open} open / {c.total} totaal</span>
+                                          {clientTimeStr !== "\u2014" && <span>Tijd: {clientTimeStr}</span>}
+                                          {clientAvgStr && <span>Gem: {clientAvgStr}/factuur</span>}
+                                        </div>
                                       </div>
                                     );
                                   })}
@@ -2256,7 +2318,7 @@ function BookkeeperContent() {
                     <div className="bg-emerald-50 rounded-xl p-4 shadow-sm border border-emerald-200">
                       <p className="text-xs text-emerald-700 font-medium">Ouder kwartaal</p>
                       <p className="text-xl font-bold text-emerald-600">0</p>
-                      <p className="text-[10px] text-emerald-500">Alles verwerkt!</p>
+                      <p className="text-[10px] text-emerald-500">Alles geboekt!</p>
                     </div>
                   )}
                   <div className="bg-emerald-50 rounded-xl p-4 shadow-sm border border-emerald-200">
@@ -2909,7 +2971,7 @@ function BookkeeperContent() {
             if (res.ok) {
               const entry = await res.json();
               setJournalEntries(prev => prev.map(e => e.id === id ? entry : e));
-              addToast({ type: "bookkeeping", title: "Memoriaalboeking verwerkt", message: `${entry.reference} is geboekt` });
+              addToast({ type: "bookkeeping", title: "Memoriaalboeking geboekt", message: `${entry.reference} is geboekt` });
             }
           } catch { /* */ }
           finally { setJournalSaving(false); }
