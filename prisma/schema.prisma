@@ -36,6 +36,8 @@ model User {
   // Quotation settings
   quotationValidityDays    Int     @default(30)
   defaultQuotationEmailText String?
+  // Notification preferences (JSON string of enabled types)
+  notificationPrefs String?  // e.g. {"newSales":true,"newPurchase":true,"overdue":true,...}
   createdAt     DateTime @default(now())
 
   administrations    Administration[]
@@ -458,6 +460,34 @@ model Notification {
 
   @@index([userId, isRead])
   @@index([userId, createdAt])
+}
+
+model JournalEntry {
+  id          String    @id @default(uuid())
+  date        String    // YYYY-MM-DD
+  reference   String    // e.g. "MEM-001"
+  description String
+  type        String    @default("memoriaal") // memoriaal, beginbalans
+  totalDebit  Float     @default(0)
+  totalCredit Float     @default(0)
+  status      String    @default("draft") // draft, booked
+  bookedAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  lines JournalLine[]
+}
+
+model JournalLine {
+  id             String  @id @default(uuid())
+  journalEntryId String
+  ledgerAccount  String
+  debit          Float   @default(0)
+  credit         Float   @default(0)
+  description    String?
+  vatCode        String?
+
+  journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
 }
 
 model SystemSetting {

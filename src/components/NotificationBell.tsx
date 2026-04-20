@@ -97,7 +97,7 @@ function groupByDate(notifications: Notification[]): { label: string; items: Not
   return groups;
 }
 
-export default function NotificationBell() {
+export default function NotificationBell({ variant = "dark" }: { variant?: "dark" | "light" }) {
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -170,7 +170,11 @@ export default function NotificationBell() {
       {/* Bell button */}
       <button
         onClick={() => { setOpen(!open); if (!open) fetchNotifications(); }}
-        className="relative p-2 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-all"
+        className={`relative p-2 rounded-lg transition-all ${
+          variant === "light"
+            ? "text-gray-500 hover:text-gray-800 hover:bg-gray-100"
+            : "text-white/60 hover:text-white hover:bg-white/10"
+        }`}
         aria-label="Notificaties"
       >
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

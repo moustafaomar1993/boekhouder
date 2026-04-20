@@ -123,7 +123,7 @@ function BookkeeperContent() {
     status: string; label: string | null; supplierName: string | null; invoiceNumber: string | null;
     amount: number | null; vatAmount: number | null; totalAmount: number | null; documentDate: string | null;
     category: string | null; description: string | null; vatType: string | null; notes: string | null;
-    bookedAt: string | null; createdAt: string; updatedAt: string;
+    dueDate: string | null; bookedAt: string | null; createdAt: string; updatedAt: string;
     user: { id: string; name: string; company: string | null; email: string };
   }
   const [purchaseDocs, setPurchaseDocs] = useState<PurchaseDoc[]>([]);
@@ -218,6 +218,37 @@ function BookkeeperContent() {
   const [vatSaving, setVatSaving] = useState(false);
   const [statementView, setStatementView] = useState<"balans" | "wv">("wv");
 
+  // Debiteurenbeheer status filter
+  const [debiteurenStatusFilter, setDebiteurenStatusFilter] = useState<string>("all");
+
+  // Inkoop sub-tab state
+  const [inkoopTab, setInkoopTab] = useState<"crediteurenbeheer" | "boeken">("boeken");
+  const [inkoopBoekenClient, setInkoopBoekenClient] = useState("");
+
+  // Memoriaal state
+  interface JournalEntryData {
+    id: string; date: string; reference: string; description: string; type: string;
+    totalDebit: number; totalCredit: number; status: string; bookedAt: string | null;
+    createdAt: string; lines: JournalLineData[];
+  }
+  interface JournalLineData {
+    id: string; ledgerAccount: string; debit: number; credit: number; description: string | null; vatCode: string | null;
+  }
+  const [journalEntries, setJournalEntries] = useState<JournalEntryData[]>([]);
+  const [showJournalModal, setShowJournalModal] = useState(false);
+  const [editingJournal, setEditingJournal] = useState<JournalEntryData | null>(null);
+  const [journalForm, setJournalForm] = useState({ date: new Date().toISOString().split("T")[0], description: "", type: "memoriaal" as "memoriaal" | "beginbalans" });
+  const [journalLines, setJournalLines] = useState<{ id: string; ledgerAccount: string; ledgerSearch: string; debit: number; credit: number; description: string; vatCode: string; vatSearch: string }[]>([]);
+  const [journalSaving, setJournalSaving] = useState(false);
+  const [journalLedgerDrop, setJournalLedgerDrop] = useState<string | null>(null);
+  const [journalVatDrop, setJournalVatDrop] = useState<string | null>(null);
+
+  // Boeken summary filter
+  const [boekenSummaryFilter, setBoekenSummaryFilter] = useState<string>("all");
+
+  // Voortgang popup
+  const [showVoortgang, setShowVoortgang] = useState(false);
+
   // Afletteren state
   const [reconDocTab, setReconDocTab] = useState<"verkoop" | "inkoop">("verkoop");
   const [reconRelationFilter, setReconRelationFilter] = useState("all");
@@ -238,6 +269,7 @@ function BookkeeperContent() {
     fetch("/api/conversations").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setAccConvos(d); }).catch(() => {});
     fetch("/api/ledger-accounts").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setLedgerAccounts(d); }).catch(() => {});
     fetch("/api/vat-codes").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setVatCodes(d); }).catch(() => {});
+    fetch("/api/journal-entries").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setJournalEntries(d); }).catch(() => {});
   }, []);
 
   async function handleBook(invoiceId: string, category?: string, vatType?: string) {
@@ -776,7 +808,8 @@ function BookkeeperContent() {
 
   const sectionTitles: Record<string, string> = {
     dashboard: "Dashboard", verkoop: "Verkoop", inkoop: "Inkoop", bank: "Bank",
-    kas: "Kas", afletteren: "Afletteren", grootboek: "Grootboek", taken: "Taken", berichten: "Berichten",
+    kas: "Kas", memoriaal: "Memoriaal", boekingen: "Boekingen", afletteren: "Afletteren",
+    grootboek: "Grootboek", taken: "Taken", berichten: "Berichten",
     agenda: "Agenda", fiscaal: "BTW & Fiscaal", instellingen: "Instellingen",
   };
 
@@ -867,7 +900,14 @@ function BookkeeperContent() {
                   {label} {active && <span className="text-[#00AFCB]">{sortDir === "asc" ? "↑" : "↓"}</span>}
                 </th>;
               }
-              const sorted = [...dbInvoices].sort((a, b) => {
+              const dbFiltered = dbInvoices.filter((inv) => {
+                if (debiteurenStatusFilter === "open") return inv.status === "sent" || inv.status === "overdue";
+                if (debiteurenStatusFilter === "overdue") return (inv.status === "sent" || inv.status === "overdue") && new Date(inv.dueDate) < new Date();
+                if (debiteurenStatusFilter === "new") return inv.bookkeepingStatus === "pending" || inv.bookkeepingStatus === "to_book";
+                if (debiteurenStatusFilter === "paid") return inv.status === "paid";
+                return true;
+              });
+              const sorted = [...dbFiltered].sort((a, b) => {
                 const dir = sortDir === "asc" ? 1 : -1;
                 switch (sortKey) {
                   case "invoiceNumber": return a.invoiceNumber.localeCompare(b.invoiceNumber) * dir;
@@ -907,30 +947,35 @@ function BookkeeperContent() {
 
                   {dbClient && (
                     <div className="space-y-4">
-                      {/* Summary cards */}
+                      {/* Summary cards — clickable as filters */}
                       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                        <button onClick={() => setDebiteurenStatusFilter("all")}
+                          className={`rounded-xl p-4 shadow-sm border text-left transition-all ${debiteurenStatusFilter === "all" ? "ring-2 ring-[#00AFCB] border-[#00AFCB]/30 bg-white" : "bg-white border-gray-100 hover:border-gray-200"}`}>
                           <p className="text-xs text-gray-500">Totaal</p>
                           <p className="text-lg font-bold text-[#004854]">{dbInvoices.length}</p>
-                        </div>
-                        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-                          <p className="text-xs text-gray-500">Openstaand</p>
+                        </button>
+                        <button onClick={() => setDebiteurenStatusFilter("open")}
+                          className={`rounded-xl p-4 shadow-sm border text-left transition-all ${debiteurenStatusFilter === "open" ? "ring-2 ring-amber-400 border-amber-300 bg-amber-50" : "bg-white border-gray-100 hover:border-amber-200"}`}>
+                          <p className="text-xs text-amber-700 font-medium">Openstaand</p>
                           <p className="text-lg font-bold text-amber-600">{openInvs.length}</p>
                           <p className="text-xs text-gray-400">{formatCurrency(openInvs.reduce((s, i) => s + i.total, 0))}</p>
-                        </div>
-                        <div className={`rounded-xl p-4 shadow-sm border ${overdueInvs.length > 0 ? "bg-red-50 border-red-200" : "bg-white border-gray-100"}`}>
+                        </button>
+                        <button onClick={() => setDebiteurenStatusFilter("overdue")}
+                          className={`rounded-xl p-4 shadow-sm border text-left transition-all ${debiteurenStatusFilter === "overdue" ? "ring-2 ring-red-400 border-red-300 bg-red-50" : overdueInvs.length > 0 ? "bg-red-50 border-red-200 hover:border-red-300" : "bg-white border-gray-100 hover:border-gray-200"}`}>
                           <p className={`text-xs ${overdueInvs.length > 0 ? "text-red-700 font-semibold" : "text-gray-500"}`}>Verlopen</p>
                           <p className={`text-lg font-bold ${overdueInvs.length > 0 ? "text-red-600" : "text-gray-400"}`}>{overdueInvs.length}</p>
                           {overdueInvs.length > 0 && <p className="text-xs text-red-500 font-medium">{formatCurrency(overdueInvs.reduce((s, i) => s + i.total, 0))}</p>}
-                        </div>
-                        <div className={`rounded-xl p-4 shadow-sm border ${newToProcess.length > 0 ? "bg-blue-50 border-blue-200" : "bg-white border-gray-100"}`}>
+                        </button>
+                        <button onClick={() => setDebiteurenStatusFilter("new")}
+                          className={`rounded-xl p-4 shadow-sm border text-left transition-all ${debiteurenStatusFilter === "new" ? "ring-2 ring-blue-400 border-blue-300 bg-blue-50" : newToProcess.length > 0 ? "bg-blue-50 border-blue-200 hover:border-blue-300" : "bg-white border-gray-100 hover:border-gray-200"}`}>
                           <p className={`text-xs ${newToProcess.length > 0 ? "text-blue-700" : "text-gray-500"}`}>Nieuw / te boeken</p>
                           <p className={`text-lg font-bold ${newToProcess.length > 0 ? "text-blue-600" : "text-gray-400"}`}>{newToProcess.length}</p>
-                        </div>
-                        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-                          <p className="text-xs text-gray-500">Betaald</p>
+                        </button>
+                        <button onClick={() => setDebiteurenStatusFilter("paid")}
+                          className={`rounded-xl p-4 shadow-sm border text-left transition-all ${debiteurenStatusFilter === "paid" ? "ring-2 ring-emerald-400 border-emerald-300 bg-emerald-50" : "bg-white border-gray-100 hover:border-gray-200"}`}>
+                          <p className="text-xs text-emerald-700">Betaald</p>
                           <p className="text-lg font-bold text-emerald-600">{dbInvoices.filter((i) => i.status === "paid").length}</p>
-                        </div>
+                        </button>
                       </div>
 
                       {/* Desktop table with sortable headers */}
@@ -1168,38 +1213,108 @@ function BookkeeperContent() {
               if (!boekenClient) {
                 return (
                   <div className="space-y-5">
-                    {/* Summary */}
+                    {/* Summary — clickable to filter client tiles */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                      <button onClick={() => setBoekenSummaryFilter("all")}
+                        className={`rounded-xl p-4 shadow-sm border text-left transition-all ${boekenSummaryFilter === "all" ? "ring-2 ring-[#00AFCB] border-[#00AFCB]/30 bg-white" : "bg-white border-gray-100 hover:border-gray-200"}`}>
                         <p className="text-xs text-gray-500">Totaal facturen</p>
                         <p className="text-xl font-bold text-[#004854]">{vTotalAll}</p>
-                      </div>
-                      <div className={`rounded-xl p-4 shadow-sm border ${vTotalOpen > 0 ? "bg-blue-50 border-blue-200" : "bg-white border-gray-100"}`}>
+                      </button>
+                      <button onClick={() => setBoekenSummaryFilter("open")}
+                        className={`rounded-xl p-4 shadow-sm border text-left transition-all ${boekenSummaryFilter === "open" ? "ring-2 ring-blue-400 border-blue-300 bg-blue-50" : vTotalOpen > 0 ? "bg-blue-50 border-blue-200 hover:border-blue-300" : "bg-white border-gray-100 hover:border-gray-200"}`}>
                         <p className={`text-xs ${vTotalOpen > 0 ? "text-blue-700 font-medium" : "text-gray-500"}`}>Open / te boeken</p>
                         <p className={`text-xl font-bold ${vTotalOpen > 0 ? "text-blue-600" : "text-gray-400"}`}>{vTotalOpen}</p>
-                      </div>
-                      <div className="bg-emerald-50 rounded-xl p-4 shadow-sm border border-emerald-200">
+                      </button>
+                      <button onClick={() => setBoekenSummaryFilter("booked")}
+                        className={`rounded-xl p-4 shadow-sm border text-left transition-all ${boekenSummaryFilter === "booked" ? "ring-2 ring-emerald-400 border-emerald-300 bg-emerald-50" : "bg-emerald-50 border-emerald-200 hover:border-emerald-300"}`}>
                         <p className="text-xs text-emerald-700 font-medium">Geboekt</p>
                         <p className="text-xl font-bold text-emerald-600">{vTotalBooked}</p>
-                      </div>
-                      <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-                        <p className="text-xs text-gray-500">Voortgang</p>
+                      </button>
+                      <button onClick={() => setShowVoortgang(true)}
+                        className="rounded-xl p-4 shadow-sm border bg-white border-gray-100 hover:border-[#00AFCB]/30 hover:shadow-md text-left transition-all group">
+                        <p className="text-xs text-gray-500 group-hover:text-[#00AFCB]">Voortgang</p>
                         <div className="flex items-center gap-2 mt-1">
                           <div className="flex-1 bg-gray-100 rounded-full h-2.5">
                             <div className="bg-emerald-500 h-2.5 rounded-full transition-all" style={{ width: `${vOverallProgress}%` }} />
                           </div>
                           <span className="text-sm font-bold text-[#004854]">{vOverallProgress}%</span>
                         </div>
-                      </div>
+                        <p className="text-[10px] text-gray-400 mt-1 group-hover:text-[#00AFCB]">Klik voor details</p>
+                      </button>
                     </div>
+
+                    {/* Voortgang popup */}
+                    {showVoortgang && (() => {
+                      const fullyProcessed = clientTiles.filter((c) => c.progress === 100).length;
+                      const partiallyProcessed = clientTiles.filter((c) => c.progress > 0 && c.progress < 100).length;
+                      const notStarted = clientTiles.filter((c) => c.progress === 0).length;
+                      return (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowVoortgang(false)}>
+                          <div className="bg-white rounded-xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+                            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                              <h3 className="text-base font-semibold text-[#3C2C1E]">Verwerkingsvoortgang</h3>
+                              <button onClick={() => setShowVoortgang(false)} className="p-1 hover:bg-gray-100 rounded-lg">
+                                <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                              </button>
+                            </div>
+                            <div className="p-6 space-y-5">
+                              <div className="text-center">
+                                <div className="relative w-24 h-24 mx-auto mb-3">
+                                  <svg className="w-24 h-24 transform -rotate-90" viewBox="0 0 100 100">
+                                    <circle cx="50" cy="50" r="42" fill="none" stroke="#e5e7eb" strokeWidth="8" />
+                                    <circle cx="50" cy="50" r="42" fill="none" stroke="#10b981" strokeWidth="8" strokeDasharray={`${vOverallProgress * 2.64} 264`} strokeLinecap="round" />
+                                  </svg>
+                                  <div className="absolute inset-0 flex items-center justify-center">
+                                    <span className="text-2xl font-bold text-[#004854]">{vOverallProgress}%</span>
+                                  </div>
+                                </div>
+                                <p className="text-sm text-gray-600">{vTotalBooked} van {vTotalAll} facturen verwerkt</p>
+                              </div>
+                              <div className="grid grid-cols-3 gap-3 text-center">
+                                <div className="bg-emerald-50 rounded-lg p-3">
+                                  <p className="text-lg font-bold text-emerald-600">{fullyProcessed}</p>
+                                  <p className="text-[10px] text-emerald-700 font-medium">Volledig</p>
+                                </div>
+                                <div className="bg-blue-50 rounded-lg p-3">
+                                  <p className="text-lg font-bold text-blue-600">{partiallyProcessed}</p>
+                                  <p className="text-[10px] text-blue-700 font-medium">Bezig</p>
+                                </div>
+                                <div className="bg-gray-50 rounded-lg p-3">
+                                  <p className="text-lg font-bold text-gray-500">{notStarted}</p>
+                                  <p className="text-[10px] text-gray-600 font-medium">Niet gestart</p>
+                                </div>
+                              </div>
+                              <div className="space-y-2">
+                                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Per klant</p>
+                                {clientTiles.map((c) => (
+                                  <div key={c.id} className="flex items-center gap-3">
+                                    <span className="text-xs text-gray-700 flex-1 truncate">{c.name}</span>
+                                    <div className="w-20 bg-gray-100 rounded-full h-1.5">
+                                      <div className={`h-1.5 rounded-full ${c.progress === 100 ? "bg-emerald-500" : c.progress > 50 ? "bg-emerald-400" : "bg-[#00AFCB]"}`} style={{ width: `${c.progress}%` }} />
+                                    </div>
+                                    <span className="text-[10px] text-gray-500 w-8 text-right">{c.progress}%</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Client tiles */}
                     <div>
-                      <h2 className="text-sm font-semibold text-gray-700 mb-3">Klanten / Relaties</h2>
+                      <h2 className="text-sm font-semibold text-gray-700 mb-3">Klanten / Relaties {boekenSummaryFilter !== "all" && <span className="text-xs font-normal text-gray-400 ml-2">— gefilterd</span>}</h2>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {clientTiles.map((c) => (
+                        {clientTiles.filter((c) => {
+                          if (boekenSummaryFilter === "open") return c.open > 0;
+                          if (boekenSummaryFilter === "booked") return c.booked > 0;
+                          return true;
+                        }).map((c) => (
                           <button key={c.id} onClick={() => { setBoekenClient(c.id); setFilter("all"); setSelectedSalesIds(new Set()); setBulkLedgerSearch(""); setBulkLedgerAccount(""); }}
-                            className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 text-left hover:border-[#00AFCB]/40 hover:shadow-md transition-all group">
+                            className={`rounded-xl shadow-sm border p-5 text-left hover:shadow-md transition-all group ${
+                              c.progress === 100 ? "bg-emerald-50/50 border-emerald-200 hover:border-emerald-300" : "bg-white border-gray-100 hover:border-[#00AFCB]/40"
+                            }`}>
                             <div className="flex items-start justify-between">
                               <div className="min-w-0 flex-1">
                                 <h3 className="font-semibold text-[#3C2C1E] group-hover:text-[#00AFCB] transition-colors truncate">{c.name}</h3>
@@ -1659,19 +1774,19 @@ function BookkeeperContent() {
                                             </div>
                                           </td>
                                           <td className="px-2 py-2 text-right">
-                                            {isRow0 ? (
-                                              <span className="text-sm font-medium text-gray-700">{formatCurrency(rowExcl)}</span>
+                                            {isRow0 && bookModalRows.length > 1 ? (
+                                              <span className="text-sm font-medium text-gray-700" title="Automatisch berekend resterend bedrag">{formatCurrency(rowExcl)}</span>
                                             ) : (
-                                              <input type="number" step="0.01" value={row.exclVat || ""} onChange={(e) => updateBookingRow(row.id, "exclVat", parseFloat(e.target.value) || 0)}
-                                                className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs text-right focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" placeholder="0,00" />
+                                              <input type="number" step="0.01" value={isRow0 ? (row.exclVat || "") : (row.exclVat || "")} onChange={(e) => updateBookingRow(row.id, "exclVat", parseFloat(e.target.value) || 0)}
+                                                className={`w-full border rounded px-2 py-1.5 text-xs text-right focus:ring-2 focus:ring-[#00AFCB]/30 outline-none ${isRow0 ? "border-blue-200 bg-blue-50/50" : "border-gray-200"}`} placeholder="0,00" />
                                             )}
                                           </td>
                                           <td className="px-2 py-2 text-right">
-                                            {isRow0 ? (
-                                              <span className="text-sm font-medium text-gray-500">{formatCurrency(rowVat)}</span>
+                                            {isRow0 && bookModalRows.length > 1 ? (
+                                              <span className="text-sm font-medium text-gray-500" title="Automatisch berekend resterend BTW">{formatCurrency(rowVat)}</span>
                                             ) : (
-                                              <input type="number" step="0.01" value={row.vatAmount || ""} onChange={(e) => updateBookingRow(row.id, "vatAmount", parseFloat(e.target.value) || 0)}
-                                                className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs text-right focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" placeholder="0,00" />
+                                              <input type="number" step="0.01" value={isRow0 ? (row.vatAmount || "") : (row.vatAmount || "")} onChange={(e) => updateBookingRow(row.id, "vatAmount", parseFloat(e.target.value) || 0)}
+                                                className={`w-full border rounded px-2 py-1.5 text-xs text-right focus:ring-2 focus:ring-[#00AFCB]/30 outline-none ${isRow0 ? "border-blue-200 bg-blue-50/50" : "border-gray-200"}`} placeholder="0,00" />
                                             )}
                                           </td>
                                           <td className="px-2 py-2">
@@ -1764,20 +1879,20 @@ function BookkeeperContent() {
                                       <div className="grid grid-cols-2 gap-2">
                                         <div>
                                           <label className="text-[10px] text-gray-500">Excl. BTW</label>
-                                          {isRow0 ? (
+                                          {isRow0 && bookModalRows.length > 1 ? (
                                             <p className="text-sm font-medium text-gray-700 px-2 py-1.5">{formatCurrency(rowExcl)}</p>
                                           ) : (
-                                            <input type="number" step="0.01" value={row.exclVat || ""} onChange={(e) => updateBookingRow(row.id, "exclVat", parseFloat(e.target.value) || 0)}
-                                              className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" placeholder="0,00" />
+                                            <input type="number" step="0.01" value={isRow0 ? (row.exclVat || "") : (row.exclVat || "")} onChange={(e) => updateBookingRow(row.id, "exclVat", parseFloat(e.target.value) || 0)}
+                                              className={`w-full border rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none ${isRow0 ? "border-blue-200 bg-blue-50/50" : "border-gray-200"}`} placeholder="0,00" />
                                           )}
                                         </div>
                                         <div>
                                           <label className="text-[10px] text-gray-500">BTW</label>
-                                          {isRow0 ? (
+                                          {isRow0 && bookModalRows.length > 1 ? (
                                             <p className="text-sm font-medium text-gray-500 px-2 py-1.5">{formatCurrency(rowVat)}</p>
                                           ) : (
-                                            <input type="number" step="0.01" value={row.vatAmount || ""} onChange={(e) => updateBookingRow(row.id, "vatAmount", parseFloat(e.target.value) || 0)}
-                                              className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" placeholder="0,00" />
+                                            <input type="number" step="0.01" value={isRow0 ? (row.vatAmount || "") : (row.vatAmount || "")} onChange={(e) => updateBookingRow(row.id, "vatAmount", parseFloat(e.target.value) || 0)}
+                                              className={`w-full border rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none ${isRow0 ? "border-blue-200 bg-blue-50/50" : "border-gray-200"}`} placeholder="0,00" />
                                           )}
                                         </div>
                                       </div>
@@ -1792,14 +1907,30 @@ function BookkeeperContent() {
                               </div>
 
                               {/* Totals row */}
-                              <div className="bg-gray-50 rounded-lg p-3 mt-3 flex flex-wrap gap-4 text-xs">
-                                <span className="text-gray-500">Totaal boekingsregels:</span>
-                                <span className="font-medium">{formatCurrency(totalRowsExcl)}</span>
-                                <span className="text-gray-400">+</span>
-                                <span className="font-medium text-gray-600">{formatCurrency(totalRowsVat)} BTW</span>
-                                <span className="text-gray-400">=</span>
-                                <span className="font-bold text-gray-900">{formatCurrency(totalRowsExcl + totalRowsVat)}</span>
-                              </div>
+                              {(() => {
+                                const rowTotal = bookModalRows.reduce((s, r, i) => s + (i === 0 && bookModalRows.length > 1 ? row0ExclVat : r.exclVat) + (i === 0 && bookModalRows.length > 1 ? row0VatAmount : r.vatAmount), 0);
+                                const invoiceTotal = modalInv.total;
+                                const diff = Math.abs(rowTotal - invoiceTotal);
+                                const hasDiff = diff > 0.01;
+                                return (
+                                  <div className={`rounded-lg p-3 mt-3 ${hasDiff ? "bg-amber-50 border border-amber-200" : "bg-gray-50"}`}>
+                                    <div className="flex flex-wrap gap-4 text-xs items-center">
+                                      <span className="text-gray-500">Totaal boekingsregels:</span>
+                                      <span className="font-medium">{formatCurrency(totalRowsExcl)}</span>
+                                      <span className="text-gray-400">+</span>
+                                      <span className="font-medium text-gray-600">{formatCurrency(totalRowsVat)} BTW</span>
+                                      <span className="text-gray-400">=</span>
+                                      <span className={`font-bold ${hasDiff ? "text-amber-700" : "text-gray-900"}`}>{formatCurrency(totalRowsExcl + totalRowsVat)}</span>
+                                    </div>
+                                    {hasDiff && (
+                                      <div className="flex items-center gap-2 mt-2 text-xs text-amber-700">
+                                        <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                                        <span className="font-medium">Verschil van {formatCurrency(diff)} met factuurtotaal ({formatCurrency(invoiceTotal)})</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           </div>
 
@@ -1935,26 +2066,58 @@ function BookkeeperContent() {
               </div>
             </div>
 
-            {/* Stats */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-                <p className="text-xs text-gray-500">Totaal geboekt</p>
-                <p className="text-xl font-bold text-[#004854]">{bookedInvoices.length}</p>
-              </div>
-              <div className="bg-emerald-50 rounded-xl p-4 shadow-sm border border-emerald-200">
-                <p className="text-xs text-emerald-700 font-medium">Geboekt</p>
-                <p className="text-xl font-bold text-emerald-600">{totalBooked}</p>
-              </div>
-              <div className="bg-blue-50 rounded-xl p-4 shadow-sm border border-blue-200">
-                <p className="text-xs text-blue-700 font-medium">Verwerkt (BTW)</p>
-                <p className="text-xl font-bold text-blue-600">{totalProcessed}</p>
-              </div>
-              <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-                <p className="text-xs text-gray-500">Totaal BTW</p>
-                <p className="text-lg font-bold text-[#004854]">{formatCurrency(totalVat)}</p>
-                <p className="text-[10px] text-gray-400">excl. {formatCurrency(totalAmount - totalVat)}</p>
-              </div>
-            </div>
+            {/* Stats with quarter detection */}
+            {(() => {
+              const now = new Date();
+              const currentQ = Math.floor(now.getMonth() / 3);
+              const currentY = now.getFullYear();
+              const oldQBookings = bookedInvoices.filter((i) => {
+                if (i.bookkeepingStatus !== "booked") return false;
+                const d = new Date(i.date);
+                const q = Math.floor(d.getMonth() / 3);
+                return d.getFullYear() < currentY || (d.getFullYear() === currentY && q < currentQ);
+              });
+              const newBookings = bookedInvoices.filter((i) => {
+                if (i.bookkeepingStatus !== "booked") return false;
+                const d = new Date(i.date);
+                const q = Math.floor(d.getMonth() / 3);
+                return d.getFullYear() === currentY && q === currentQ;
+              });
+              return (
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                  <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                    <p className="text-xs text-gray-500">Totaal geboekt</p>
+                    <p className="text-xl font-bold text-[#004854]">{bookedInvoices.length}</p>
+                  </div>
+                  <div className="bg-blue-50 rounded-xl p-4 shadow-sm border border-blue-200">
+                    <p className="text-xs text-blue-700 font-medium">Nieuw dit kwartaal</p>
+                    <p className="text-xl font-bold text-blue-600">{newBookings.length}</p>
+                  </div>
+                  {oldQBookings.length > 0 ? (
+                    <div className="bg-red-50 rounded-xl p-4 shadow-sm border-2 border-red-300 animate-pulse-subtle">
+                      <p className="text-xs text-red-700 font-bold">Ouder kwartaal!</p>
+                      <p className="text-xl font-bold text-red-600">{oldQBookings.length}</p>
+                      <p className="text-[10px] text-red-500 font-medium">Verwerk voor BTW-aangifte</p>
+                    </div>
+                  ) : (
+                    <div className="bg-emerald-50 rounded-xl p-4 shadow-sm border border-emerald-200">
+                      <p className="text-xs text-emerald-700 font-medium">Ouder kwartaal</p>
+                      <p className="text-xl font-bold text-emerald-600">0</p>
+                      <p className="text-[10px] text-emerald-500">Alles verwerkt!</p>
+                    </div>
+                  )}
+                  <div className="bg-emerald-50 rounded-xl p-4 shadow-sm border border-emerald-200">
+                    <p className="text-xs text-emerald-700 font-medium">Verwerkt (BTW)</p>
+                    <p className="text-xl font-bold text-emerald-600">{totalProcessed}</p>
+                  </div>
+                  <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                    <p className="text-xs text-gray-500">Totaal BTW</p>
+                    <p className="text-lg font-bold text-[#004854]">{formatCurrency(totalVat)}</p>
+                    <p className="text-[10px] text-gray-400">excl. {formatCurrency(totalAmount - totalVat)}</p>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* View switcher */}
             <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
@@ -2185,8 +2348,21 @@ function BookkeeperContent() {
       {/* ═══ INKOOP ═══ */}
       {section === "inkoop" && (
         <div className="space-y-6">
-          <h1 className="text-xl sm:text-2xl font-bold text-[#3C2C1E]">Inkoop</h1>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold text-[#3C2C1E]">Inkoop</h1>
+              <p className="text-sm text-[#6F5C4B]/70 mt-1">Boeken en crediteurenbeheer</p>
+            </div>
+          </div>
 
+          {/* Sub-tab switcher */}
+          <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
+            <button onClick={() => setInkoopTab("boeken")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${inkoopTab === "boeken" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>Boeken</button>
+            <button onClick={() => setInkoopTab("crediteurenbeheer")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${inkoopTab === "crediteurenbeheer" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>Crediteurenbeheer</button>
+          </div>
+
+          {/* ─── INKOOP BOEKEN TAB ─── */}
+          {inkoopTab === "boeken" && (<>
           {/* Stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
@@ -2379,8 +2555,563 @@ function BookkeeperContent() {
               </div>
             </div>
           )}
+          </>)}
+
+          {/* ─── INKOOP CREDITEURENBEHEER TAB ─── */}
+          {inkoopTab === "crediteurenbeheer" && (() => {
+            const inkoopClients = clients.filter((c) => c.role === "client");
+            const inkoopClientDocs = inkoopBoekenClient ? purchaseDocs.filter((d) => d.userId === inkoopBoekenClient) : [];
+            const openDocs = inkoopClientDocs.filter((d) => d.status === "uploaded" || d.status === "processing");
+            const paidDocs = inkoopClientDocs.filter((d) => d.status === "booked");
+            const totalOpen = openDocs.reduce((s, d) => s + (d.totalAmount || 0), 0);
+            const overdueDocs = inkoopClientDocs.filter((d) => d.dueDate && new Date(d.dueDate) < new Date() && d.status !== "booked");
+
+            return (
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+                  <select value={inkoopBoekenClient} onChange={(e) => setInkoopBoekenClient(e.target.value)}
+                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none min-w-[200px]">
+                    <option value="">Selecteer een klant...</option>
+                    {inkoopClients.map((c) => <option key={c.id} value={c.id}>{c.company || c.name}</option>)}
+                  </select>
+                </div>
+
+                {!inkoopBoekenClient && (
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
+                    <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" /></svg>
+                    <p className="text-sm text-gray-500">Selecteer een klant om het crediteurenbeheer te openen.</p>
+                    <p className="text-xs text-gray-400 mt-1">Beheer openstaande inkoopfacturen en volg crediteuren op.</p>
+                  </div>
+                )}
+
+                {inkoopBoekenClient && (
+                  <div className="space-y-4">
+                    {/* Summary tiles */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                        <p className="text-xs text-gray-500">Totaal</p>
+                        <p className="text-lg font-bold text-[#004854]">{inkoopClientDocs.length}</p>
+                      </div>
+                      <div className={`rounded-xl p-4 shadow-sm border ${openDocs.length > 0 ? "bg-amber-50 border-amber-200" : "bg-white border-gray-100"}`}>
+                        <p className="text-xs text-amber-700 font-medium">Openstaand</p>
+                        <p className="text-lg font-bold text-amber-600">{openDocs.length}</p>
+                        <p className="text-xs text-gray-400">{formatCurrency(totalOpen)}</p>
+                      </div>
+                      <div className={`rounded-xl p-4 shadow-sm border ${overdueDocs.length > 0 ? "bg-red-50 border-red-200" : "bg-white border-gray-100"}`}>
+                        <p className={`text-xs ${overdueDocs.length > 0 ? "text-red-700 font-semibold" : "text-gray-500"}`}>Verlopen</p>
+                        <p className={`text-lg font-bold ${overdueDocs.length > 0 ? "text-red-600" : "text-gray-400"}`}>{overdueDocs.length}</p>
+                      </div>
+                      <div className="bg-emerald-50 rounded-xl p-4 shadow-sm border border-emerald-200">
+                        <p className="text-xs text-emerald-700 font-medium">Geboekt</p>
+                        <p className="text-lg font-bold text-emerald-600">{paidDocs.length}</p>
+                      </div>
+                    </div>
+
+                    {/* Document list for selected client */}
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-100">
+                      {inkoopClientDocs.length === 0 ? (
+                        <div className="p-8 text-center">
+                          <p className="text-sm text-gray-500">Geen inkoopdocumenten voor deze klant.</p>
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-gray-50">
+                          {inkoopClientDocs.map((doc) => {
+                            const isOverdue = doc.dueDate && new Date(doc.dueDate) < new Date() && doc.status !== "booked";
+                            return (
+                              <button key={doc.id} onClick={() => setPurchaseViewDoc(doc)}
+                                className={`w-full text-left px-4 sm:px-5 py-4 hover:bg-gray-50 transition-colors ${isOverdue ? "bg-red-50/50" : ""}`}>
+                                <div className="flex items-center gap-3 sm:gap-4">
+                                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${doc.fileType === "pdf" ? "bg-red-50" : "bg-blue-50"}`}>
+                                    {doc.fileType === "pdf" ? (
+                                      <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                                    ) : (
+                                      <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                    )}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium text-gray-900 truncate">{doc.supplierName || doc.label || doc.fileName}</p>
+                                    <p className="text-xs text-gray-500 mt-0.5">
+                                      {doc.documentDate ? formatDate(doc.documentDate) : formatDate(doc.createdAt.split("T")[0])}
+                                      {doc.invoiceNumber && <> &middot; #{doc.invoiceNumber}</>}
+                                      {doc.dueDate && <> &middot; vervalt {formatDate(doc.dueDate)}</>}
+                                    </p>
+                                    {isOverdue && <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-100 text-red-700">VERLOPEN</span>}
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    {doc.totalAmount != null && <p className="text-sm font-semibold">{formatCurrency(doc.totalAmount)}</p>}
+                                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${purchaseStatusColors[doc.status] || "bg-gray-100"}`}>
+                                      {purchaseStatusLabels[doc.status] || doc.status}
+                                    </span>
+                                  </div>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
+
+      {/* ═══ MEMORIAAL ═══ */}
+      {section === "memoriaal" && (() => {
+        const allActiveAccounts = ledgerAccounts.filter((a) => a.isActive);
+        const allActiveVatCodes = vatCodes.filter((v) => v.isActive);
+
+        function filterMemLedger(search: string) {
+          if (!search) return allActiveAccounts.slice(0, 15);
+          const s = search.toLowerCase();
+          return allActiveAccounts.filter((a) => a.accountNumber.startsWith(search) || a.name.toLowerCase().includes(s) || a.accountNumber.includes(search)).slice(0, 15);
+        }
+
+        function filterMemVat(search: string) {
+          if (!search) return allActiveVatCodes;
+          const s = search.toLowerCase();
+          return allActiveVatCodes.filter((v) => v.code.toLowerCase().includes(s) || v.name.toLowerCase().includes(s)).slice(0, 10);
+        }
+
+        function openNewJournal(type: "memoriaal" | "beginbalans") {
+          setEditingJournal(null);
+          setJournalForm({ date: new Date().toISOString().split("T")[0], description: "", type });
+          setJournalLines([
+            { id: "jl-1", ledgerAccount: "", ledgerSearch: "", debit: 0, credit: 0, description: "", vatCode: "", vatSearch: "" },
+            { id: "jl-2", ledgerAccount: "", ledgerSearch: "", debit: 0, credit: 0, description: "", vatCode: "", vatSearch: "" },
+          ]);
+          setShowJournalModal(true);
+        }
+
+        function addJournalLine() {
+          setJournalLines(prev => [...prev, { id: `jl-${Date.now()}`, ledgerAccount: "", ledgerSearch: "", debit: 0, credit: 0, description: "", vatCode: "", vatSearch: "" }]);
+        }
+
+        function updateJournalLine(id: string, field: string, value: string | number) {
+          setJournalLines(prev => prev.map(l => l.id === id ? { ...l, [field]: value } : l));
+        }
+
+        function removeJournalLine(id: string) {
+          setJournalLines(prev => prev.filter(l => l.id !== id));
+        }
+
+        async function saveJournal() {
+          const totalD = journalLines.reduce((s, l) => s + (l.debit || 0), 0);
+          const totalC = journalLines.reduce((s, l) => s + (l.credit || 0), 0);
+          if (Math.abs(totalD - totalC) > 0.01) {
+            addToast({ type: "error", title: "Niet in balans", message: `Debet (${formatCurrency(totalD)}) en credit (${formatCurrency(totalC)}) moeten gelijk zijn.` });
+            return;
+          }
+          if (!journalForm.description.trim()) {
+            addToast({ type: "error", title: "Omschrijving ontbreekt", message: "Voer een omschrijving in." });
+            return;
+          }
+          if (journalLines.some(l => !l.ledgerAccount)) {
+            addToast({ type: "error", title: "Grootboek ontbreekt", message: "Selecteer een grootboekrekening per regel." });
+            return;
+          }
+          setJournalSaving(true);
+          try {
+            const body = {
+              date: journalForm.date,
+              description: journalForm.description,
+              type: journalForm.type,
+              lines: journalLines.map(l => ({
+                ledgerAccount: l.ledgerAccount,
+                debit: l.debit || 0,
+                credit: l.credit || 0,
+                description: l.description || undefined,
+                vatCode: l.vatCode || undefined,
+              })),
+            };
+            const url = editingJournal ? `/api/journal-entries/${editingJournal.id}` : "/api/journal-entries";
+            const method = editingJournal ? "PATCH" : "POST";
+            const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+            if (res.ok) {
+              const entry = await res.json();
+              if (editingJournal) {
+                setJournalEntries(prev => prev.map(e => e.id === entry.id ? entry : e));
+              } else {
+                setJournalEntries(prev => [entry, ...prev]);
+              }
+              setShowJournalModal(false);
+              addToast({ type: "bookkeeping", title: editingJournal ? "Boeking bijgewerkt" : "Boeking aangemaakt", message: `${entry.reference} - ${entry.description}` });
+            } else {
+              const data = await res.json();
+              addToast({ type: "error", title: "Fout", message: data.error || "Er ging iets mis" });
+            }
+          } catch { addToast({ type: "error", title: "Fout", message: "Er ging iets mis" }); }
+          finally { setJournalSaving(false); }
+        }
+
+        async function bookJournal(id: string) {
+          setJournalSaving(true);
+          try {
+            const res = await fetch(`/api/journal-entries/${id}`, {
+              method: "PATCH", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ status: "booked" }),
+            });
+            if (res.ok) {
+              const entry = await res.json();
+              setJournalEntries(prev => prev.map(e => e.id === id ? entry : e));
+              addToast({ type: "bookkeeping", title: "Memoriaalboeking verwerkt", message: `${entry.reference} is geboekt` });
+            }
+          } catch { /* */ }
+          finally { setJournalSaving(false); }
+        }
+
+        async function deleteJournal(id: string) {
+          try {
+            const res = await fetch(`/api/journal-entries/${id}`, { method: "DELETE" });
+            if (res.ok) {
+              setJournalEntries(prev => prev.filter(e => e.id !== id));
+              addToast({ type: "success", title: "Verwijderd", message: "Memoriaalboeking verwijderd" });
+            }
+          } catch { /* */ }
+        }
+
+        const drafts = journalEntries.filter(e => e.status === "draft");
+        const booked = journalEntries.filter(e => e.status === "booked");
+
+        return (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold text-[#3C2C1E]">Memoriaal</h1>
+                <p className="text-sm text-[#6F5C4B]/70 mt-1">Handmatige journaalboekingen en beginbalans</p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => openNewJournal("beginbalans")}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
+                  Beginbalans
+                </button>
+                <button onClick={() => openNewJournal("memoriaal")}
+                  className="px-4 py-2 bg-[#004854] text-white rounded-lg text-sm font-medium hover:bg-[#003640] transition-colors">
+                  + Nieuwe boeking
+                </button>
+              </div>
+            </div>
+
+            {/* Summary */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                <p className="text-xs text-gray-500">Totaal</p>
+                <p className="text-xl font-bold text-[#004854]">{journalEntries.length}</p>
+              </div>
+              <div className={`rounded-xl p-4 shadow-sm border ${drafts.length > 0 ? "bg-amber-50 border-amber-200" : "bg-white border-gray-100"}`}>
+                <p className="text-xs text-amber-700 font-medium">Concept</p>
+                <p className="text-xl font-bold text-amber-600">{drafts.length}</p>
+              </div>
+              <div className="bg-emerald-50 rounded-xl p-4 shadow-sm border border-emerald-200">
+                <p className="text-xs text-emerald-700 font-medium">Geboekt</p>
+                <p className="text-xl font-bold text-emerald-600">{booked.length}</p>
+              </div>
+              <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                <p className="text-xs text-gray-500">Totaal bedrag</p>
+                <p className="text-lg font-bold text-[#004854]">{formatCurrency(journalEntries.reduce((s, e) => s + e.totalDebit, 0))}</p>
+              </div>
+            </div>
+
+            {/* Journal entries list */}
+            {journalEntries.length === 0 ? (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 sm:p-12 text-center">
+                <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                <p className="text-sm text-gray-500">Nog geen memoriaalboekingen.</p>
+                <p className="text-xs text-gray-400 mt-1">Maak een memoriaalboeking of beginbalans aan.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {journalEntries.map((entry) => (
+                  <div key={entry.id} className={`bg-white rounded-xl shadow-sm border p-4 sm:p-5 ${entry.status === "draft" ? "border-amber-200" : "border-gray-100"}`}>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-[#004854]">{entry.reference}</span>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${entry.type === "beginbalans" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"}`}>
+                            {entry.type === "beginbalans" ? "Beginbalans" : "Memoriaal"}
+                          </span>
+                          <StatusBadge status={entry.status} />
+                        </div>
+                        <p className="text-sm text-gray-700 mt-0.5">{entry.description}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">{formatDate(entry.date)} &middot; {entry.lines.length} regels</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <p className="text-sm font-semibold">{formatCurrency(entry.totalDebit)}</p>
+                          <p className="text-[10px] text-gray-400">debet = credit</p>
+                        </div>
+                        <div className="flex gap-1">
+                          {entry.status === "draft" && (
+                            <>
+                              <button onClick={() => {
+                                setEditingJournal(entry);
+                                setJournalForm({ date: entry.date, description: entry.description, type: entry.type as "memoriaal" | "beginbalans" });
+                                setJournalLines(entry.lines.map(l => ({
+                                  id: l.id, ledgerAccount: l.ledgerAccount, ledgerSearch: l.ledgerAccount,
+                                  debit: l.debit, credit: l.credit, description: l.description || "",
+                                  vatCode: l.vatCode || "", vatSearch: l.vatCode || "",
+                                })));
+                                setShowJournalModal(true);
+                              }} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600" title="Bewerken">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                              </button>
+                              <button onClick={() => bookJournal(entry.id)} disabled={journalSaving}
+                                className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700 disabled:opacity-50">
+                                Boeken
+                              </button>
+                              <button onClick={() => { if (confirm("Weet je het zeker?")) deleteJournal(entry.id); }}
+                                className="p-1.5 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-500" title="Verwijderen">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    {/* Expandable lines preview */}
+                    <div className="mt-3 border-t border-gray-100 pt-3">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead><tr className="text-gray-400 text-[10px]">
+                            <th className="text-left py-1 font-medium">Rekening</th>
+                            <th className="text-right py-1 font-medium">Debet</th>
+                            <th className="text-right py-1 font-medium">Credit</th>
+                            <th className="text-left py-1 font-medium">Omschrijving</th>
+                          </tr></thead>
+                          <tbody>
+                            {entry.lines.map((line) => (
+                              <tr key={line.id} className="border-t border-gray-50">
+                                <td className="py-1 text-gray-700">{line.ledgerAccount}</td>
+                                <td className="py-1 text-right">{line.debit > 0 ? formatCurrency(line.debit) : ""}</td>
+                                <td className="py-1 text-right">{line.credit > 0 ? formatCurrency(line.credit) : ""}</td>
+                                <td className="py-1 text-gray-500">{line.description || ""}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Journal entry modal */}
+            {showJournalModal && (() => {
+              const totalD = journalLines.reduce((s, l) => s + (l.debit || 0), 0);
+              const totalC = journalLines.reduce((s, l) => s + (l.credit || 0), 0);
+              const balanced = Math.abs(totalD - totalC) < 0.01;
+
+              return (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowJournalModal(false)}>
+                  <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+                    <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+                      <h3 className="text-base font-semibold text-[#3C2C1E]">{editingJournal ? "Boeking bewerken" : journalForm.type === "beginbalans" ? "Beginbalans invoeren" : "Nieuwe memoriaalboeking"}</h3>
+                      <button onClick={() => setShowJournalModal(false)} className="p-1 hover:bg-gray-100 rounded-lg">
+                        <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-6 space-y-5">
+                      {/* Form fields */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+                          <select value={journalForm.type} onChange={(e) => setJournalForm(prev => ({ ...prev, type: e.target.value as "memoriaal" | "beginbalans" }))}
+                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none">
+                            <option value="memoriaal">Memoriaal</option>
+                            <option value="beginbalans">Beginbalans</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Datum</label>
+                          <input type="date" value={journalForm.date} onChange={(e) => setJournalForm(prev => ({ ...prev, date: e.target.value }))}
+                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Omschrijving</label>
+                          <input type="text" value={journalForm.description} onChange={(e) => setJournalForm(prev => ({ ...prev, description: e.target.value }))}
+                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none"
+                            placeholder="Omschrijving van de boeking..." />
+                        </div>
+                      </div>
+
+                      {/* Lines */}
+                      <div>
+                        <div className="flex items-center justify-between mb-3">
+                          <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wider">Boekingsregels</h4>
+                          <button onClick={addJournalLine} className="text-xs px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg font-medium transition-colors flex items-center gap-1">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                            Regel toevoegen
+                          </button>
+                        </div>
+
+                        {/* Desktop table */}
+                        <div className="hidden md:block border border-gray-100 rounded-lg overflow-visible">
+                          <table className="w-full text-xs">
+                            <thead><tr className="bg-gray-50 text-gray-500 text-[11px]">
+                              <th className="px-2 py-2 text-left font-medium w-[220px]">Grootboek</th>
+                              <th className="px-2 py-2 text-left font-medium w-[140px]">BTW-code</th>
+                              <th className="px-2 py-2 text-right font-medium w-[100px]">Debet</th>
+                              <th className="px-2 py-2 text-right font-medium w-[100px]">Credit</th>
+                              <th className="px-2 py-2 text-left font-medium">Omschrijving</th>
+                              <th className="px-2 py-2 w-8"></th>
+                            </tr></thead>
+                            <tbody className="divide-y divide-gray-50">
+                              {journalLines.map((line) => {
+                                const matchedLedger = filterMemLedger(line.ledgerSearch);
+                                const matchedVat = filterMemVat(line.vatSearch);
+                                const showLDrop = journalLedgerDrop === line.id && !line.ledgerAccount;
+                                const showVDrop = journalVatDrop === line.id && !line.vatCode;
+                                return (
+                                  <tr key={line.id}>
+                                    <td className="px-2 py-2">
+                                      <div className="relative">
+                                        <input type="text" value={line.ledgerSearch}
+                                          onChange={(e) => { updateJournalLine(line.id, "ledgerSearch", e.target.value); updateJournalLine(line.id, "ledgerAccount", ""); setJournalLedgerDrop(line.id); }}
+                                          onFocus={() => setJournalLedgerDrop(line.id)}
+                                          onBlur={() => setTimeout(() => setJournalLedgerDrop(prev => prev === line.id ? null : prev), 200)}
+                                          placeholder="Zoek rekening..."
+                                          className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
+                                        {showLDrop && matchedLedger.length > 0 && (
+                                          <div className="absolute z-50 w-72 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto left-0">
+                                            {matchedLedger.map((a) => (
+                                              <button key={a.id} type="button" onMouseDown={(e) => e.preventDefault()}
+                                                onClick={() => {
+                                                  updateJournalLine(line.id, "ledgerAccount", `${a.accountNumber} ${a.name}`);
+                                                  updateJournalLine(line.id, "ledgerSearch", `${a.accountNumber} - ${a.name}`);
+                                                  setJournalLedgerDrop(null);
+                                                }}
+                                                className="w-full text-left px-3 py-2 hover:bg-gray-50 text-xs flex items-center gap-2">
+                                                <span className="font-mono text-gray-400 w-10 shrink-0">{a.accountNumber}</span>
+                                                <span className="text-gray-700 truncate">{a.name}</span>
+                                              </button>
+                                            ))}
+                                          </div>
+                                        )}
+                                        {line.ledgerAccount && (
+                                          <button onClick={() => { updateJournalLine(line.id, "ledgerAccount", ""); updateJournalLine(line.id, "ledgerSearch", ""); }}
+                                            className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                          </button>
+                                        )}
+                                      </div>
+                                    </td>
+                                    <td className="px-2 py-2">
+                                      <div className="relative">
+                                        <input type="text" value={line.vatSearch}
+                                          onChange={(e) => { updateJournalLine(line.id, "vatSearch", e.target.value); updateJournalLine(line.id, "vatCode", ""); setJournalVatDrop(line.id); }}
+                                          onFocus={() => setJournalVatDrop(line.id)}
+                                          onBlur={() => setTimeout(() => setJournalVatDrop(prev => prev === line.id ? null : prev), 200)}
+                                          placeholder="BTW-code..."
+                                          className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
+                                        {showVDrop && matchedVat.length > 0 && (
+                                          <div className="absolute z-50 w-64 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto left-0">
+                                            {matchedVat.map((v) => (
+                                              <button key={v.id} type="button" onMouseDown={(e) => e.preventDefault()}
+                                                onClick={() => { updateJournalLine(line.id, "vatCode", `${v.code} ${v.name}`); updateJournalLine(line.id, "vatSearch", `${v.code} - ${v.name} (${v.percentage}%)`); setJournalVatDrop(null); }}
+                                                className="w-full text-left px-3 py-2 hover:bg-gray-50 text-xs flex items-center gap-2">
+                                                <span className="font-mono text-blue-600 w-10 shrink-0">{v.code}</span>
+                                                <span className="text-gray-700 truncate">{v.name}</span>
+                                                <span className="ml-auto text-gray-400 shrink-0">{v.percentage}%</span>
+                                              </button>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </td>
+                                    <td className="px-2 py-2">
+                                      <input type="number" step="0.01" value={line.debit || ""} onChange={(e) => updateJournalLine(line.id, "debit", parseFloat(e.target.value) || 0)}
+                                        className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs text-right focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" placeholder="0,00" />
+                                    </td>
+                                    <td className="px-2 py-2">
+                                      <input type="number" step="0.01" value={line.credit || ""} onChange={(e) => updateJournalLine(line.id, "credit", parseFloat(e.target.value) || 0)}
+                                        className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs text-right focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" placeholder="0,00" />
+                                    </td>
+                                    <td className="px-2 py-2">
+                                      <input type="text" value={line.description} onChange={(e) => updateJournalLine(line.id, "description", e.target.value)}
+                                        className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" placeholder="Omschrijving..." />
+                                    </td>
+                                    <td className="px-2 py-2">
+                                      {journalLines.length > 2 && (
+                                        <button onClick={() => removeJournalLine(line.id)} className="p-1 hover:bg-red-50 rounded text-gray-400 hover:text-red-500">
+                                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                        </button>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Mobile lines */}
+                        <div className="md:hidden space-y-3">
+                          {journalLines.map((line, idx) => (
+                            <div key={line.id} className="border border-gray-200 rounded-lg p-3 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-medium text-gray-500 uppercase">Regel {idx + 1}</span>
+                                {journalLines.length > 2 && (
+                                  <button onClick={() => removeJournalLine(line.id)} className="text-xs text-red-400 hover:text-red-600">Verwijderen</button>
+                                )}
+                              </div>
+                              <div>
+                                <label className="text-[10px] text-gray-500">Grootboek</label>
+                                <input type="text" value={line.ledgerSearch}
+                                  onChange={(e) => { updateJournalLine(line.id, "ledgerSearch", e.target.value); updateJournalLine(line.id, "ledgerAccount", ""); }}
+                                  placeholder="Zoek rekening..."
+                                  className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="text-[10px] text-gray-500">Debet</label>
+                                  <input type="number" step="0.01" value={line.debit || ""} onChange={(e) => updateJournalLine(line.id, "debit", parseFloat(e.target.value) || 0)}
+                                    className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" placeholder="0,00" />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-gray-500">Credit</label>
+                                  <input type="number" step="0.01" value={line.credit || ""} onChange={(e) => updateJournalLine(line.id, "credit", parseFloat(e.target.value) || 0)}
+                                    className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" placeholder="0,00" />
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Balance indicator */}
+                        <div className={`rounded-lg p-3 mt-3 flex flex-wrap items-center gap-4 text-xs ${balanced ? "bg-emerald-50 border border-emerald-200" : "bg-red-50 border border-red-200"}`}>
+                          <span className="text-gray-600">Totaal:</span>
+                          <span className="font-medium">Debet: {formatCurrency(totalD)}</span>
+                          <span className="font-medium">Credit: {formatCurrency(totalC)}</span>
+                          {balanced ? (
+                            <span className="flex items-center gap-1 text-emerald-700 font-medium ml-auto">
+                              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                              In balans
+                            </span>
+                          ) : (
+                            <span className="text-red-700 font-medium ml-auto">Verschil: {formatCurrency(Math.abs(totalD - totalC))}</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2 shrink-0">
+                      <button onClick={() => setShowJournalModal(false)} className="px-4 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50">Annuleren</button>
+                      <button onClick={saveJournal} disabled={journalSaving || !balanced || !journalForm.description.trim()}
+                        className="px-4 py-2 bg-[#004854] text-white rounded-lg text-sm font-medium hover:bg-[#003640] disabled:opacity-50">
+                        {journalSaving ? "Opslaan..." : editingJournal ? "Opslaan" : "Boeking aanmaken"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        );
+      })()}
 
       {/* ═══ BANK ═══ */}
       {section === "bank" && (
@@ -3829,6 +4560,34 @@ function BookkeeperContent() {
               <p className="text-sm text-gray-500 mb-3">BTW-codes en tarieven configureren.</p>
               <span className="text-xs font-medium text-[#00AFCB]">Ga naar BTW-codes &rarr;</span>
             </Link>
+            {/* Notification settings */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 sm:p-6">
+              <h3 className="text-base font-semibold text-[#3C2C1E] mb-1">Notificatie-instellingen</h3>
+              <p className="text-sm text-gray-500 mb-4">Kies welke notificaties je wilt ontvangen.</p>
+              <div className="space-y-3">
+                {[
+                  { key: "newSales", label: "Nieuwe verkoopfacturen", desc: "Wanneer een klant een nieuwe factuur aanmaakt" },
+                  { key: "newPurchase", label: "Nieuwe inkoopdocumenten", desc: "Wanneer een klant een document uploadt" },
+                  { key: "overdue", label: "Verlopen facturen", desc: "Wanneer een factuur de vervaldatum passeert" },
+                  { key: "payment", label: "Betalingen", desc: "Wanneer een betaling wordt ontvangen" },
+                  { key: "booking", label: "Boekingen", desc: "Wanneer facturen worden geboekt" },
+                  { key: "exception", label: "Uitzonderingen", desc: "Wanneer er een uitzondering wordt aangemaakt" },
+                  { key: "task", label: "Taken", desc: "Wanneer een taak wordt toegewezen" },
+                  { key: "bank", label: "Bank-import", desc: "Wanneer banktransacties worden geïmporteerd" },
+                ].map((item) => (
+                  <div key={item.key} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">{item.label}</p>
+                      <p className="text-xs text-gray-400">{item.desc}</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" defaultChecked className="sr-only peer" />
+                      <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-[#00AFCB]/30 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#00AFCB]"></div>
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </div>
             {[
               { title: "Klantinstellingen", description: "Standaardinstellingen per klant configureren." },
               { title: "Boekingsregels", description: "Automatische boekingsregels en sjablonen beheren." },

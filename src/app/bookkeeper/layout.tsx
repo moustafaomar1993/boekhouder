@@ -10,10 +10,11 @@ import { ToastProvider } from "@/components/ToastProvider";
 const sidebarItems = [
   { key: "dashboard", label: "Dashboard", href: "/bookkeeper", icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1" /></svg> },
   { key: "verkoop", label: "Verkoop", href: "/bookkeeper?section=verkoop", icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> },
-  { key: "boekingen", label: "Boekingen", href: "/bookkeeper?section=boekingen", icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg> },
   { key: "inkoop", label: "Inkoop", href: "/bookkeeper?section=inkoop", icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" /></svg> },
   { key: "bank", label: "Bank", href: "/bookkeeper?section=bank", icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg> },
   { key: "kas", label: "Kas", href: "/bookkeeper?section=kas", icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg> },
+  { key: "memoriaal", label: "Memoriaal", href: "/bookkeeper?section=memoriaal", icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg> },
+  { key: "boekingen", label: "Boekingen", href: "/bookkeeper?section=boekingen", icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg> },
   { key: "afletteren", label: "Afletteren", href: "/bookkeeper?section=afletteren", icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg> },
   { key: "grootboek", label: "Grootboek", href: "/bookkeeper?section=grootboek", icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg> },
   { key: "taken", label: "Taken", href: "/bookkeeper?section=taken", icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg> },
@@ -23,13 +24,20 @@ const sidebarItems = [
   { key: "instellingen", label: "Instellingen", href: "/bookkeeper?section=instellingen", icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg> },
 ];
 
+const sectionTitles: Record<string, string> = {
+  dashboard: "Dashboard", verkoop: "Verkoop", inkoop: "Inkoop", bank: "Bank",
+  kas: "Kas", memoriaal: "Memoriaal", boekingen: "Boekingen", afletteren: "Afletteren",
+  grootboek: "Grootboek", taken: "Taken", berichten: "Berichten",
+  agenda: "Agenda", fiscaal: "BTW & Fiscaal", instellingen: "Instellingen",
+};
+
 function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const lastRefresh = useRef(0);
-  const [sidebarCounts, setSidebarCounts] = useState<{ toProcess: number; overdue: number }>({ toProcess: 0, overdue: 0 });
+  const [sidebarCounts, setSidebarCounts] = useState<{ toProcess: number; overdue: number; inkoopNew: number; boekingenNew: number; boekingenOldQ: number }>({ toProcess: 0, overdue: 0, inkoopNew: 0, boekingenNew: 0, boekingenOldQ: 0 });
   const [verkoopHover, setVerkoopHover] = useState(false);
   const verkoopHoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [openInvoices, setOpenInvoices] = useState<{ id: string; invoiceNumber: string; customerName: string; total: number; dueDate: string; status: string }[]>([]);
@@ -70,19 +78,34 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
 
   // Fetch sidebar badge counts + open invoices for hover
   useEffect(() => {
+    // Verkoop badges
     fetch("/api/invoices").then((r) => r.ok ? r.json() : []).then((invs: { id: string; invoiceNumber: string; customerName: string; total: number; bookkeepingStatus: string; status: string; dueDate: string; date: string }[]) => {
       if (!Array.isArray(invs)) return;
       const toProcess = invs.filter((i) => i.bookkeepingStatus === "pending" || i.bookkeepingStatus === "to_book").length;
       const now = new Date();
       const overdue = invs.filter((i) => (i.status === "sent" || i.status === "overdue") && new Date(i.dueDate) < now).length;
-      setSidebarCounts({ toProcess, overdue });
-      // Open invoices for sidebar hover dropdown (most recent first, max 8)
+      // Boekingen badges: new booked + older quarter
+      const booked = invs.filter((i) => i.bookkeepingStatus === "booked");
+      const currentQ = Math.floor(now.getMonth() / 3);
+      const currentY = now.getFullYear();
+      const boekingenOldQ = booked.filter((i) => {
+        const d = new Date(i.date);
+        const q = Math.floor(d.getMonth() / 3);
+        return d.getFullYear() < currentY || (d.getFullYear() === currentY && q < currentQ);
+      }).length;
+      setSidebarCounts(prev => ({ ...prev, toProcess, overdue, boekingenNew: booked.length, boekingenOldQ }));
       const open = invs
         .filter((i) => i.status === "sent" || i.status === "overdue" || i.bookkeepingStatus === "pending" || i.bookkeepingStatus === "to_book")
         .sort((a, b) => b.date.localeCompare(a.date))
         .slice(0, 8)
         .map((i) => ({ id: i.id, invoiceNumber: i.invoiceNumber, customerName: i.customerName, total: i.total, dueDate: i.dueDate, status: i.status }));
       setOpenInvoices(open);
+    }).catch(() => {});
+    // Inkoop badge
+    fetch("/api/purchases/all").then((r) => r.ok ? r.json() : []).then((docs: { status: string }[]) => {
+      if (!Array.isArray(docs)) return;
+      const inkoopNew = docs.filter((d) => d.status === "uploaded").length;
+      setSidebarCounts(prev => ({ ...prev, inkoopNew }));
     }).catch(() => {});
   }, []);
 
@@ -100,10 +123,22 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
               {isActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-[#00AFCB] rounded-r-full" />}
               <span className={isActive ? "text-[#00AFCB]" : "text-white/40"}>{item.icon}</span>
               <span className="flex-1">{item.label}</span>
+              {/* Verkoop badges */}
               {item.key === "verkoop" && (sidebarCounts.toProcess > 0 || sidebarCounts.overdue > 0) && (
                 <span className="flex items-center gap-1">
                   {sidebarCounts.toProcess > 0 && <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-blue-500 text-[10px] font-bold text-white leading-none px-1">{sidebarCounts.toProcess}</span>}
                   {sidebarCounts.overdue > 0 && <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white leading-none px-1">{sidebarCounts.overdue}</span>}
+                </span>
+              )}
+              {/* Inkoop badge */}
+              {item.key === "inkoop" && sidebarCounts.inkoopNew > 0 && (
+                <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-blue-500 text-[10px] font-bold text-white leading-none px-1">{sidebarCounts.inkoopNew}</span>
+              )}
+              {/* Boekingen badges */}
+              {item.key === "boekingen" && (sidebarCounts.boekingenNew > 0 || sidebarCounts.boekingenOldQ > 0) && (
+                <span className="flex items-center gap-1">
+                  {sidebarCounts.boekingenNew > 0 && <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-blue-500 text-[10px] font-bold text-white leading-none px-1">{sidebarCounts.boekingenNew}</span>}
+                  {sidebarCounts.boekingenOldQ > 0 && <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white leading-none px-1">{sidebarCounts.boekingenOldQ}</span>}
                 </span>
               )}
             </Link>
@@ -116,7 +151,7 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
                 onMouseLeave={() => { verkoopHoverTimeout.current = setTimeout(() => setVerkoopHover(false), 200); }}>
                 {linkEl}
                 {verkoopHover && openInvoices.length > 0 && (
-                  <div className="absolute left-full top-0 ml-2 w-72 bg-white rounded-xl shadow-xl border border-gray-200 z-[60] py-2 max-h-[360px] overflow-y-auto">
+                  <div className="absolute left-full top-0 ml-2 w-72 bg-white rounded-xl shadow-xl border border-gray-200 z-[80] py-2 max-h-[360px] overflow-y-auto">
                     <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Openstaand ({openInvoices.length}{openInvoices.length >= 8 ? "+" : ""})</p>
                     {openInvoices.map((inv) => {
                       const isOverdue = inv.status === "overdue" || (inv.status === "sent" && new Date(inv.dueDate) < new Date());
@@ -157,20 +192,27 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
     </>
   );
 
+  const currentTitle = sectionTitles[activeSection] || "";
+
   return (
     <div className="flex min-h-screen">
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex w-[250px] bg-[#004854] flex-col fixed top-0 left-0 h-full z-40">
         <div className="px-5 py-5 border-b border-white/10">
-          <div className="flex items-center justify-between">
-            <Link href="/bookkeeper" className="block">
-              <Image src="/logo.svg" alt="HAMZA Deboekhouder" width={150} height={39} className="brightness-0 invert" priority />
-            </Link>
-            <NotificationBell />
-          </div>
+          <Link href="/bookkeeper" className="block">
+            <Image src="/logo.svg" alt="HAMZA Deboekhouder" width={150} height={39} className="brightness-0 invert" priority />
+          </Link>
         </div>
         {navContent}
       </aside>
+
+      {/* Desktop top header bar */}
+      <div className="hidden lg:flex fixed top-0 left-[250px] right-0 h-14 bg-white border-b border-gray-200 z-30 items-center justify-between px-6">
+        <h1 className="text-base font-semibold text-[#3C2C1E]">{currentTitle}</h1>
+        <div className="flex items-center gap-3">
+          <NotificationBell variant="light" />
+        </div>
+      </div>
 
       {/* Mobile header */}
       <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-[#004854] border-b border-white/10 pt-[env(safe-area-inset-top)]">
@@ -210,7 +252,7 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 lg:ml-[250px] min-h-screen bg-[#F5F7FA] pt-14 lg:pt-0">
+      <main className="flex-1 lg:ml-[250px] min-h-screen bg-[#F5F7FA] pt-14 lg:pt-14">
         {children}
       </main>
     </div>
