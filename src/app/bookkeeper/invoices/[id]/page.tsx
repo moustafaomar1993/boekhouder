@@ -51,7 +51,7 @@ interface LedgerAccountData {
 function InvoiceReviewInner({ id }: { id: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const fromVerwerken = searchParams.get("from") === "verwerken";
+  const fromBoeken = searchParams.get("from") === "boeken";
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [clients, setClients] = useState<User[]>([]);
   const [category, setCategory] = useState("");
@@ -70,7 +70,7 @@ function InvoiceReviewInner({ id }: { id: string }) {
   const [showCreditModal, setShowCreditModal] = useState(false);
   const [creditLoading, setCreditLoading] = useState(false);
 
-  // Processing-focused state (Verwerken)
+  // Processing-focused state (Boeken)
   const [ledgerAccounts, setLedgerAccounts] = useState<LedgerAccountData[]>([]);
   const [ledgerSearch, setLedgerSearch] = useState("");
   const [selectedLedger, setSelectedLedger] = useState("");
@@ -105,11 +105,11 @@ function InvoiceReviewInner({ id }: { id: string }) {
       }
     });
     fetch("/api/clients").then((r) => r.json()).then(setClients);
-    if (fromVerwerken) {
+    if (fromBoeken) {
       fetch("/api/ledger-accounts").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setLedgerAccounts(d); }).catch(() => {});
       fetch("/api/vat-codes").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setVatCodes(d); }).catch(() => {});
     }
-  }, [id, fromVerwerken]);
+  }, [id, fromBoeken]);
 
   // Fetch customer details and related invoices for debtor management
   useEffect(() => {
@@ -142,7 +142,7 @@ function InvoiceReviewInner({ id }: { id: string }) {
 
   async function updateStatus(bookkeepingStatus: string) {
     setSaving(true);
-    if (fromVerwerken && bookingMode === "line") {
+    if (fromBoeken && bookingMode === "line") {
       // Line-level booking
       const lbArray = Object.entries(lineBookings).map(([itemId, lb]) => ({
         itemId,
@@ -157,8 +157,8 @@ function InvoiceReviewInner({ id }: { id: string }) {
       setInvoice(updated);
     } else {
       // Invoice-level booking
-      const cat = fromVerwerken && selectedLedger ? selectedLedger : category;
-      const vat = fromVerwerken && selectedVat ? selectedVat : undefined;
+      const cat = fromBoeken && selectedLedger ? selectedLedger : category;
+      const vat = fromBoeken && selectedVat ? selectedVat : undefined;
       const res = await fetch(`/api/invoices/${id}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bookkeepingStatus, category: cat, ...(vat && { vatType: vat }) }),
@@ -267,8 +267,8 @@ function InvoiceReviewInner({ id }: { id: string }) {
   const canBook = invoice?.bookkeepingStatus === "pending" || invoice?.bookkeepingStatus === "to_book" || invoice?.bookkeepingStatus === "processing";
   const allLinesFilled = bookingMode === "line" ? Object.values(lineBookings).every((lb) => lb.ledger) : !!selectedLedger;
 
-  // ═══ PROCESSING-FOCUSED VIEW (from Verwerken) ═══
-  if (fromVerwerken) {
+  // ═══ PROCESSING-FOCUSED VIEW (from Boeken) ═══
+  if (fromBoeken) {
     return (
       <div className="min-h-screen bg-gray-50">
         <header className="bg-white border-b border-gray-200">
@@ -276,7 +276,7 @@ function InvoiceReviewInner({ id }: { id: string }) {
             <div className="flex justify-between items-center h-16">
               <Link href="/bookkeeper?section=verkoop" className="text-[#00AFCB] hover:text-[#004854] text-sm font-medium flex items-center gap-1">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-                Terug naar Verwerken
+                Terug naar Boeken
               </Link>
               <div className="flex items-center gap-2">
                 <StatusBadge status={invoice.bookkeepingStatus} />

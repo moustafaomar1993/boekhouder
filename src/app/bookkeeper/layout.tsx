@@ -8,6 +8,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 const sidebarItems = [
   { key: "dashboard", label: "Dashboard", href: "/bookkeeper", icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1" /></svg> },
   { key: "verkoop", label: "Verkoop", href: "/bookkeeper?section=verkoop", icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> },
+  { key: "boekingen", label: "Boekingen", href: "/bookkeeper?section=boekingen", icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg> },
   { key: "inkoop", label: "Inkoop", href: "/bookkeeper?section=inkoop", icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" /></svg> },
   { key: "bank", label: "Bank", href: "/bookkeeper?section=bank", icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg> },
   { key: "kas", label: "Kas", href: "/bookkeeper?section=kas", icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg> },
@@ -27,6 +28,9 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const lastRefresh = useRef(0);
   const [sidebarCounts, setSidebarCounts] = useState<{ toProcess: number; overdue: number }>({ toProcess: 0, overdue: 0 });
+  const [verkoopHover, setVerkoopHover] = useState(false);
+  const verkoopHoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [openInvoices, setOpenInvoices] = useState<{ id: string; invoiceNumber: string; customerName: string; total: number; dueDate: string; status: string }[]>([]);
 
   const isMainPage = pathname === "/bookkeeper";
   const activeSection = isMainPage
@@ -62,14 +66,21 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
     return () => { document.body.style.overflow = ""; };
   }, [mobileMenuOpen]);
 
-  // Fetch sidebar badge counts
+  // Fetch sidebar badge counts + open invoices for hover
   useEffect(() => {
-    fetch("/api/invoices").then((r) => r.ok ? r.json() : []).then((invs: { bookkeepingStatus: string; status: string; dueDate: string }[]) => {
+    fetch("/api/invoices").then((r) => r.ok ? r.json() : []).then((invs: { id: string; invoiceNumber: string; customerName: string; total: number; bookkeepingStatus: string; status: string; dueDate: string; date: string }[]) => {
       if (!Array.isArray(invs)) return;
       const toProcess = invs.filter((i) => i.bookkeepingStatus === "pending" || i.bookkeepingStatus === "to_book").length;
       const now = new Date();
       const overdue = invs.filter((i) => (i.status === "sent" || i.status === "overdue") && new Date(i.dueDate) < now).length;
       setSidebarCounts({ toProcess, overdue });
+      // Open invoices for sidebar hover dropdown (most recent first, max 8)
+      const open = invs
+        .filter((i) => i.status === "sent" || i.status === "overdue" || i.bookkeepingStatus === "pending" || i.bookkeepingStatus === "to_book")
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .slice(0, 8)
+        .map((i) => ({ id: i.id, invoiceNumber: i.invoiceNumber, customerName: i.customerName, total: i.total, dueDate: i.dueDate, status: i.status }));
+      setOpenInvoices(open);
     }).catch(() => {});
   }, []);
 
@@ -79,8 +90,8 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
         <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-widest text-white/30">Boekhouder</p>
         {sidebarItems.map((item) => {
           const isActive = activeSection === item.key;
-          return (
-            <Link key={item.key} href={item.href} onClick={() => setMobileMenuOpen(false)}
+          const linkEl = (
+            <Link href={item.href} onClick={() => setMobileMenuOpen(false)}
               className={`relative flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all ${
                 isActive ? "bg-[#00AFCB]/20 text-white" : "text-white/60 hover:bg-white/5 hover:text-white/90"
               }`}>
@@ -95,6 +106,43 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
               )}
             </Link>
           );
+          // Verkoop hover dropdown with open invoices
+          if (item.key === "verkoop") {
+            return (
+              <div key={item.key} className="relative"
+                onMouseEnter={() => { if (verkoopHoverTimeout.current) clearTimeout(verkoopHoverTimeout.current); setVerkoopHover(true); }}
+                onMouseLeave={() => { verkoopHoverTimeout.current = setTimeout(() => setVerkoopHover(false), 200); }}>
+                {linkEl}
+                {verkoopHover && openInvoices.length > 0 && (
+                  <div className="absolute left-full top-0 ml-2 w-72 bg-white rounded-xl shadow-xl border border-gray-200 z-[60] py-2 max-h-[360px] overflow-y-auto">
+                    <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Openstaand ({openInvoices.length}{openInvoices.length >= 8 ? "+" : ""})</p>
+                    {openInvoices.map((inv) => {
+                      const isOverdue = inv.status === "overdue" || (inv.status === "sent" && new Date(inv.dueDate) < new Date());
+                      return (
+                        <Link key={inv.id} href={`/bookkeeper/invoices/${inv.id}`}
+                          onClick={() => { setVerkoopHover(false); setMobileMenuOpen(false); }}
+                          className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 transition-colors">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-medium text-gray-900">{inv.invoiceNumber}</span>
+                              {isOverdue && <span className="px-1 py-0.5 rounded text-[8px] font-bold bg-red-100 text-red-600">VERLOPEN</span>}
+                            </div>
+                            <p className="text-[11px] text-gray-500 truncate">{inv.customerName}</p>
+                          </div>
+                          <span className="text-xs font-semibold text-gray-700 shrink-0">{new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(inv.total)}</span>
+                        </Link>
+                      );
+                    })}
+                    <div className="border-t border-gray-100 mt-1 pt-1 px-3">
+                      <Link href="/bookkeeper?section=verkoop" onClick={() => { setVerkoopHover(false); setMobileMenuOpen(false); }}
+                        className="text-[11px] text-[#00AFCB] font-medium hover:text-[#004854]">Alle facturen bekijken &rarr;</Link>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          }
+          return <div key={item.key}>{linkEl}</div>;
         })}
       </nav>
       <div className="px-3 pb-4 border-t border-white/10 pt-3">

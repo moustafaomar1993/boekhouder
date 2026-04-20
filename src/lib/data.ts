@@ -5,7 +5,7 @@ export type { User, InvoiceItem, Administration } from "@/generated/prisma/clien
 import type { Invoice as PrismaInvoice, InvoiceItem as PrismaInvoiceItem } from "@/generated/prisma/client";
 
 // Invoice with items included (as returned by API)
-export type Invoice = PrismaInvoice & { items: PrismaInvoiceItem[] };
+export type Invoice = PrismaInvoice & { items: PrismaInvoiceItem[]; customer?: { phone: string | null; email: string | null } | null };
 
 // --- Types ---
 
@@ -70,12 +70,12 @@ export async function getUserByEmail(email: string) {
 export async function getInvoicesByClient(clientId: string) {
   return prisma.invoice.findMany({
     where: { clientId },
-    include: { items: true, _count: { select: { invoiceNotes: true } } },
+    include: { items: true, customer: { select: { phone: true, email: true } }, _count: { select: { invoiceNotes: true } } },
   });
 }
 
 export async function getAllInvoices() {
-  return prisma.invoice.findMany({ include: { items: true, _count: { select: { invoiceNotes: true } } }, orderBy: { createdAt: "desc" } });
+  return prisma.invoice.findMany({ include: { items: true, customer: { select: { phone: true, email: true } }, _count: { select: { invoiceNotes: true } } }, orderBy: { createdAt: "desc" } });
 }
 
 export async function getInvoice(id: string) {
