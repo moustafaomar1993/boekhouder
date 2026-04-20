@@ -54,6 +54,7 @@ model User {
   messages           Message[]
   exceptionsReceived ExceptionItem[]   @relation("ExceptionForUser")
   exceptionsCreated  ExceptionItem[]   @relation("ExceptionCreatedBy")
+  notifications      Notification[]
 }
 
 model Administration {
@@ -434,6 +435,29 @@ model VatCode {
   updatedAt       DateTime @updatedAt
 
   defaultForAccounts LedgerAccount[] @relation("LedgerDefaultVat")
+}
+
+model Notification {
+  id          String    @id @default(uuid())
+  userId      String
+  type        String    // invoice_booked, reminder_sent, payment_received, bank_import, exception_created, task_assigned, system
+  category    String    // critical, warning, success, info, reminder, task, bookkeeping, payment, system
+  title       String
+  message     String
+  priority    Int       @default(0) // 0=normal, 1=high, 2=critical
+  isRead      Boolean   @default(false)
+  actionUrl   String?   // deep link to relevant section/page
+  actionLabel String?   // button label for the action
+  sourceType  String?   // invoice, purchase, bank, exception, task, conversation
+  sourceId    String?   // ID of the source entity
+  metadata    String?   // JSON string for extra data
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
 }
 
 model SystemSetting {

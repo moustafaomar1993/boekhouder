@@ -1,5 +1,6 @@
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { notificationTemplates } from "@/lib/notifications";
 
 export async function POST(request: Request) {
   const session = await getSession();
@@ -43,6 +44,12 @@ export async function POST(request: Request) {
       where: { id: { in: bankTransactionIds } },
       data: { status: "reconciled" },
     });
+
+    // Create notification for reconciliation
+    const totalDocs = (invoiceIds?.length || 0) + (purchaseDocIds?.length || 0);
+    if (totalDocs > 0 && session.userId) {
+      notificationTemplates.bankReconciled(session.userId, totalDocs).catch(() => {});
+    }
 
     return Response.json({
       success: true,

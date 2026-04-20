@@ -1,5 +1,6 @@
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { notificationTemplates } from "@/lib/notifications";
 
 // GET: list exceptions (accountant sees all, client sees their own)
 export async function GET() {
@@ -57,6 +58,9 @@ export async function POST(request: Request) {
       createdBy: { select: { id: true, name: true } },
     },
   });
+
+  // Notify the bookkeeper who created it
+  notificationTemplates.exceptionCreated(session.userId, title, item.user.name).catch(() => {});
 
   return Response.json(item);
 }

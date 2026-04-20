@@ -57,7 +57,10 @@
       "Bash(ssh root@65.21.107.54 'cd /var/www/boekhouder && git pull origin main && export PATH=/root/.nvm/versions/node/v22.16.0/bin:$PATH && npm ci --omit=dev && npx prisma generate && npx prisma db push --skip-generate && npm run build && pm2 restart boekhouder')",
       "Bash(ssh root@65.21.107.54 'cd /var/www/boekhouder && export PATH=/root/.nvm/versions/node/v22.16.0/bin:$PATH && npx prisma db push && npm run build && pm2 restart boekhouder')",
       "Bash(ssh root@65.21.107.54 'cd /var/www/boekhouder && export PATH=/root/.nvm/versions/node/v22.16.0/bin:$PATH && npm install && npm run build && pm2 restart boekhouder')",
-      "Bash(ssh root@65.21.107.54 'cd /var/www/boekhouder && git pull && npm install && npx prisma generate && npx prisma db push && npm run build && pm2 restart boekhouder')"
+      "Bash(ssh root@65.21.107.54 'cd /var/www/boekhouder && git pull && npm install && npx prisma generate && npx prisma db push && npm run build && pm2 restart boekhouder')",
+      "Bash(ssh root@65.21.107.54 \"cd /var/www/boekhouder && git pull && npm install && npx prisma generate && npx prisma db push --skip-generate && npm run build && pm2 restart boekhouder\")",
+      "Bash(ssh root@65.21.107.54 \"cd /var/www/boekhouder && npx prisma db push && npm run build && pm2 restart boekhouder\")",
+      "Bash(ssh root@65.21.107.54 \"cd /var/www/boekhouder && git pull && npm install && npx prisma generate && npx prisma db push && npm run build && pm2 restart boekhouder\")"
     ]
   }
 }

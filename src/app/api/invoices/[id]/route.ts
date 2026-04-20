@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getInvoice, updateInvoiceBookkeepingStatus, updateInvoiceStatus } from "@/lib/data";
 import { prisma } from "@/lib/prisma";
+import { notificationTemplates } from "@/lib/notifications";
+import { cookies } from "next/headers";
 
 export async function GET(
   _request: NextRequest,
@@ -19,9 +21,22 @@ export async function PATCH(
   const { id } = await params;
   const body = await request.json();
 
+  // Get session user for notifications
+  const cookieStore = await cookies();
+  const sessionId = cookieStore.get("session")?.value;
+  let sessionUserId: string | null = null;
+  if (sessionId) {
+    const session = await prisma.session.findUnique({ where: { id: sessionId } });
+    if (session) sessionUserId = session.userId;
+  }
+
   let invoice;
   if (body.bookkeepingStatus) {
     invoice = await updateInvoiceBookkeepingStatus(id, body.bookkeepingStatus, body.category, body.vatType);
+    // Create notification when invoice is booked
+    if (body.bookkeepingStatus === "booked" && invoice && sessionUserId) {
+      notificationTemplates.invoiceBooked(sessionUserId, invoice.invoiceNumber, invoice.customerName, invoice.id).catch(() => {});
+    }
   }
   if (body.status) {
     invoice = await updateInvoiceStatus(id, body.status);

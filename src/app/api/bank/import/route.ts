@@ -1,6 +1,7 @@
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parseMT940, transactionHash } from "@/lib/mt940";
+import { notificationTemplates } from "@/lib/notifications";
 
 export async function POST(request: Request) {
   const session = await getSession();
@@ -66,6 +67,11 @@ export async function POST(request: Request) {
         throw err;
       }
     }
+  }
+
+  // Create notification for bank import
+  if (imported > 0 && session.userId) {
+    notificationTemplates.bankImport(session.userId, imported, result.bankAccount || "onbekend").catch(() => {});
   }
 
   return Response.json({

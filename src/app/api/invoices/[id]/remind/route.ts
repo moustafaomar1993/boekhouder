@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { sendEmail } from "@/lib/email";
+import { notificationTemplates } from "@/lib/notifications";
+import { cookies } from "next/headers";
 
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(amount);
@@ -48,6 +50,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const sent = await sendEmail({ to, subject, html: emailHtml });
 
   if (sent) {
+    // Create notification for the bookkeeper
+    const cookieStore = await cookies();
+    const sessionId = cookieStore.get("session")?.value;
+    if (sessionId) {
+      const session = await prisma.session.findUnique({ where: { id: sessionId } });
+      if (session) {
+        notificationTemplates.reminderSent(session.userId, invoice.invoiceNumber, invoice.customerName, invoice.id).catch(() => {});
+      }
+    }
+    // Increment reminder count
+    await prisma.invoice.update({ where: { id }, data: { remindersSent: { increment: 1 } } }).catch(() => {});
     return Response.json({ success: true });
   }
 

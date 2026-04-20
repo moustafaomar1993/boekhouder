@@ -4,6 +4,7 @@ import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import type { Invoice, User } from "@/lib/data";
+import { useToast } from "@/components/ToastProvider";
 
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(amount);
@@ -57,6 +58,7 @@ function ModuleShell({ title, description, sections }: { title: string; descript
 function BookkeeperContent() {
   const searchParams = useSearchParams();
   const section = searchParams.get("section") || "dashboard";
+  const { addToast } = useToast();
 
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [clients, setClients] = useState<User[]>([]);
@@ -247,7 +249,9 @@ function BookkeeperContent() {
         body: JSON.stringify({ bookkeepingStatus: "booked", ...(category && { category }), ...(vatType && { vatType }) }),
       });
       if (res.ok) {
+        const inv = invoices.find(i => i.id === invoiceId);
         setInvoices((prev) => prev.map((inv) => inv.id === invoiceId ? { ...inv, bookkeepingStatus: "booked", ...(category && { category }), ...(vatType && { vatType }) } : inv));
+        if (inv) addToast({ type: "bookkeeping", title: "Factuur geboekt", message: `${inv.invoiceNumber} - ${inv.customerName}` });
       }
     } catch { /* */ }
     finally { setBookingLoading(null); }
@@ -337,12 +341,14 @@ function BookkeeperContent() {
       });
 
       if (res.ok) {
+        const bookedInv = invoices.find(i => i.id === bookModalInvoiceId);
         setInvoices(prev => prev.map(inv =>
           inv.id === bookModalInvoiceId
             ? { ...inv, bookkeepingStatus: "booked", ...(ledger && { category: ledger }), ...(vat && { vatType: vat }) }
             : inv
         ));
         setBookModalInvoiceId(null);
+        addToast({ type: "bookkeeping", title: "Factuur geboekt", message: bookedInv ? `${bookedInv.invoiceNumber} - ${bookedInv.customerName}` : "Factuur succesvol geboekt", actionUrl: bookedInv ? `/bookkeeper/invoices/${bookedInv.id}` : undefined, actionLabel: bookedInv ? "Bekijk factuur" : undefined });
       }
     } catch { /* */ }
     finally { setBookingLoading(null); }
@@ -372,6 +378,9 @@ function BookkeeperContent() {
       if (res.ok) {
         setReminderSent(true);
         setInvoices(prev => prev.map(inv => inv.id === reminderInvoice.id ? { ...inv, remindersSent: (inv.remindersSent || 0) + 1 } : inv));
+        addToast({ type: "success", title: "Herinnering verstuurd", message: `Betalingsherinnering verstuurd naar ${reminderTo}` });
+      } else {
+        addToast({ type: "error", title: "Verzenden mislukt", message: "De herinnering kon niet worden verstuurd" });
       }
     } catch { /* */ }
     finally { setReminderSending(false); }
@@ -424,10 +433,13 @@ function BookkeeperContent() {
       const data = await res.json();
       setBankImportResult({ success: res.ok, message: data.message || data.error || "Onbekend resultaat" });
       if (res.ok) {
+        addToast({ type: "success", title: "Bank import geslaagd", message: data.message || "Transacties succesvol geimporteerd", actionUrl: "/bookkeeper?section=bank", actionLabel: "Bekijk transacties" });
         const txRes = await fetch("/api/bank/transactions");
         if (txRes.ok) { const txs = await txRes.json(); if (Array.isArray(txs)) setBankTxs(txs); }
+      } else {
+        addToast({ type: "error", title: "Bank import mislukt", message: data.error || "Import mislukt" });
       }
-    } catch { setBankImportResult({ success: false, message: "Import mislukt" }); }
+    } catch { setBankImportResult({ success: false, message: "Import mislukt" }); addToast({ type: "error", title: "Bank import mislukt", message: "Er ging iets mis bij het importeren" }); }
     finally { setBankImporting(false); }
   }
 
@@ -723,6 +735,7 @@ function BookkeeperContent() {
       const data = await res.json();
       if (res.ok) {
         setReconMessage(data.message);
+        addToast({ type: "success", title: "Aflettering voltooid", message: data.message, actionUrl: "/bookkeeper?section=afletteren", actionLabel: "Bekijk aflettering" });
         // Refresh data
         const [invRes, purchRes, txRes] = await Promise.all([
           fetch("/api/invoices").then((r) => r.json()),
@@ -738,8 +751,9 @@ function BookkeeperContent() {
         setTimeout(() => setReconMessage(""), 4000);
       } else {
         setReconMessage(data.error || "Afletteren mislukt");
+        addToast({ type: "error", title: "Aflettering mislukt", message: data.error || "Er ging iets mis" });
       }
-    } catch { setReconMessage("Er ging iets mis"); }
+    } catch { setReconMessage("Er ging iets mis"); addToast({ type: "error", title: "Aflettering mislukt", message: "Er ging iets mis" }); }
     finally { setReconLoading(false); }
   }
 
@@ -1252,11 +1266,12 @@ function BookkeeperContent() {
                   const data = await res.json();
                   if (res.ok) {
                     setBulkMessage(data.message);
+                    addToast({ type: "bookkeeping", title: "Bulk boeking voltooid", message: `${selectedSalesIds.size} facturen geboekt` });
                     setInvoices((prev) => prev.map((inv) => selectedSalesIds.has(inv.id) ? { ...inv, bookkeepingStatus: "booked", category: bulkLedgerAccount, ...(bulkVatCode && { vatType: bulkVatCode }) } : inv));
                     setSelectedSalesIds(new Set()); setBulkLedgerSearch(""); setBulkLedgerAccount(""); setBulkVatCode(""); setBulkVatSearch("");
                     setTimeout(() => setBulkMessage(""), 4000);
                   }
-                } catch { setBulkMessage("Er ging iets mis"); }
+                } catch { setBulkMessage("Er ging iets mis"); addToast({ type: "error", title: "Bulk boeking mislukt", message: "Er ging iets mis bij het boeken" }); }
                 finally { setBulkBookingLoading(false); }
               }
 
