@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import type { Invoice, User } from "@/lib/data";
@@ -102,8 +102,8 @@ function BookkeeperContent() {
   const [bookModalDescription, setBookModalDescription] = useState("");
   const [bookModalDate, setBookModalDate] = useState("");
   const [bookModalDueDate, setBookModalDueDate] = useState("");
-  const [bookModalSubtotal, setBookModalSubtotal] = useState<number | null>(null);
-  const [bookModalVatAmount, setBookModalVatAmount] = useState<number | null>(null);
+  // null = use original invoice value; "" = user cleared the field; number = user-entered amount
+  const [bookModalSubtotal, setBookModalSubtotal] = useState<number | "" | null>(null);
   const [activeRowDrop, setActiveRowDrop] = useState<{ rowId: string; field: "ledger" | "vat" } | null>(null);
 
   // Reminder modal state
@@ -281,6 +281,14 @@ function BookkeeperContent() {
     fetch("/api/journal-entries").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setJournalEntries(d); }).catch(() => {});
   }, []);
 
+  // Clicking/entering Verkoop always returns to the Boeken customer overview
+  useEffect(() => {
+    if (section === "verkoop") {
+      setVerkoopTab("boeken");
+      setBoekenClient("");
+    }
+  }, [section]);
+
   async function handleBook(invoiceId: string, category?: string, vatType?: string) {
     setBookingLoading(invoiceId);
     try {
@@ -322,7 +330,6 @@ function BookkeeperContent() {
     setBookModalDate(inv.date);
     setBookModalDueDate(inv.dueDate);
     setBookModalSubtotal(null);
-    setBookModalVatAmount(null);
     setBookModalRows([{
       id: "row-0",
       ledgerAccount: "",
@@ -361,6 +368,107 @@ function BookkeeperContent() {
     setBookModalRows(prev => prev.map(r => r.id === rowId ? { ...r, [field]: value } : r));
   }
 
+  function updateBookingRowPatch(rowId: string, patch: Partial<BookingRow>) {
+    setBookModalRows(prev => prev.map(r => r.id === rowId ? { ...r, ...patch } : r));
+  }
+
+  // Parse the stored vatCode string back to a percentage (null when no/unknown code)
+  function vatRateFor(vatCodeStr: string): number | null {
+    if (!vatCodeStr) return null;
+    const match = vatCodes.find((v) => `${v.code} ${v.name} ${v.percentage}%` === vatCodeStr);
+    return match ? match.percentage : null;
+  }
+
+  function computeVatAmount(excl: number, rate: number | null): number {
+    if (rate === null) return 0;
+    return Math.round(excl * rate) / 100;
+  }
+
+  // In-context ledger account edit. Lifted to top-level so the booking dropdowns
+  // can open the chart-of-accounts edit modal without leaving the booking flow.
+  function openAccountAdd() {
+    setEditingAccount(null);
+    setAccountForm({ accountNumber: "", name: "", description: "", accountType: "expense", category: "", statementSection: "", normalBalance: "debit", isBalanceSheet: false, vatCodeId: "" });
+    setShowAccountModal(true);
+  }
+  function openAccountEdit(a: LedgerAccountData) {
+    setEditingAccount(a);
+    setAccountForm({ accountNumber: a.accountNumber, name: a.name, description: a.description || "", accountType: a.accountType, category: a.category, statementSection: a.statementSection || "", normalBalance: a.normalBalance, isBalanceSheet: a.isBalanceSheet, vatCodeId: a.vatCodeId || "" });
+    setShowAccountModal(true);
+  }
+  async function saveAccount() {
+    setAccountSaving(true);
+    try {
+      const payload = { ...accountForm, vatCodeId: accountForm.vatCodeId || null, sortOrder: parseInt(accountForm.accountNumber, 10) || 0 };
+      const res = editingAccount
+        ? await fetch(`/api/ledger-accounts/${editingAccount.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
+        : await fetch("/api/ledger-accounts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (res.ok) {
+        const refreshed = await fetch("/api/ledger-accounts").then((r) => r.json());
+        setLedgerAccounts(refreshed);
+        setShowAccountModal(false);
+      }
+    } catch { /* */ }
+    finally { setAccountSaving(false); }
+  }
+  async function toggleAccountActive(a: LedgerAccountData) {
+    const res = await fetch(`/api/ledger-accounts/${a.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ isActive: !a.isActive }) });
+    if (res.ok) setLedgerAccounts((prev) => prev.map((x) => x.id === a.id ? { ...x, isActive: !x.isActive } : x));
+  }
+  async function deleteAccount(a: LedgerAccountData) {
+    if (a.isSystem) return;
+    const res = await fetch(`/api/ledger-accounts/${a.id}`, { method: "DELETE" });
+    if (res.ok) setLedgerAccounts((prev) => prev.filter((x) => x.id !== a.id));
+  }
+
+  // Long-press detection for mobile — opens the ledger edit modal after ~550ms hold.
+  const ledgerLongPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function handleLedgerTouchStart(a: LedgerAccountData) {
+    if (ledgerLongPressRef.current) clearTimeout(ledgerLongPressRef.current);
+    ledgerLongPressRef.current = setTimeout(() => { openAccountEdit(a); setActiveRowDrop(null); }, 550);
+  }
+  function handleLedgerTouchEnd() {
+    if (ledgerLongPressRef.current) {
+      clearTimeout(ledgerLongPressRef.current);
+      ledgerLongPressRef.current = null;
+    }
+  }
+
+  // Derive effective booking totals. Row 0's excl is the remainder of subtotal minus
+  // other rows; each row's VAT is (excl × rate) when a VAT code is set, otherwise it
+  // falls back to the manually stored vatAmount (or the invoice remainder for row 0).
+  function deriveBookingTotals(
+    rows: BookingRow[],
+    subtotalState: number | "" | null,
+    inv: { subtotal: number; vatAmount: number } | null,
+  ) {
+    const effectiveSubtotal = subtotalState === null
+      ? (inv?.subtotal || 0)
+      : (subtotalState === "" ? 0 : subtotalState);
+    const other = rows.slice(1);
+    const otherRowsExclTotal = other.reduce((s, r) => s + (r.exclVat || 0), 0);
+    const otherRowsVatTotal = other.reduce((s, r) => {
+      const rate = vatRateFor(r.vatCode);
+      return s + (rate !== null ? computeVatAmount(r.exclVat || 0, rate) : (r.vatAmount || 0));
+    }, 0);
+    const row0ExclVat = rows.length > 1 ? (effectiveSubtotal - otherRowsExclTotal) : effectiveSubtotal;
+    const row0Rate = vatRateFor(rows[0]?.vatCode || "");
+    const row0VatAmount = row0Rate !== null
+      ? computeVatAmount(row0ExclVat, row0Rate)
+      : (rows.length > 1
+          ? Math.max(0, (inv?.vatAmount || 0) - otherRowsVatTotal)
+          : (rows[0]?.vatAmount || 0));
+    return {
+      effectiveSubtotal,
+      row0ExclVat,
+      row0VatAmount,
+      otherRowsExclTotal,
+      otherRowsVatTotal,
+      totalRowsExcl: row0ExclVat + otherRowsExclTotal,
+      totalRowsVat: row0VatAmount + otherRowsVatTotal,
+    };
+  }
+
   async function submitBooking() {
     if (!bookModalInvoiceId || bookModalRows.length === 0) return;
     setBookingLoading(bookModalInvoiceId);
@@ -380,9 +488,12 @@ function BookkeeperContent() {
         body.notes = bookModalDescription;
       }
 
-      // Send overridden amounts if edited
-      if (bookModalSubtotal !== null && modalInv) body.subtotal = bookModalSubtotal;
-      if (bookModalVatAmount !== null && modalInv) body.vatAmount = bookModalVatAmount;
+      // Send overridden subtotal if edited; VAT is derived from booking rows
+      const derived = deriveBookingTotals(bookModalRows, bookModalSubtotal, modalInv || null);
+      if (bookModalSubtotal !== null && modalInv) body.subtotal = derived.effectiveSubtotal;
+      if (modalInv && Math.abs(derived.totalRowsVat - modalInv.vatAmount) > 0.001) {
+        body.vatAmount = derived.totalRowsVat;
+      }
       if (bookModalDate && modalInv && bookModalDate !== modalInv.date) body.date = bookModalDate;
       if (bookModalDueDate && modalInv && bookModalDueDate !== modalInv.dueDate) body.dueDate = bookModalDueDate;
 
@@ -908,7 +1019,7 @@ function BookkeeperContent() {
 
             {/* Sub-tab switcher */}
             <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
-              <button onClick={() => setVerkoopTab("boeken")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${verkoopTab === "boeken" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>Boeken</button>
+              <button onClick={() => { setVerkoopTab("boeken"); setBoekenClient(""); setSelectedSalesIds(new Set()); setFilter("all"); }} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${verkoopTab === "boeken" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>Boeken</button>
               <button onClick={() => setVerkoopTab("debiteurenbeheer")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${verkoopTab === "debiteurenbeheer" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>Debiteurenbeheer</button>
             </div>
 
@@ -1216,18 +1327,27 @@ function BookkeeperContent() {
               const vTotalAll = clientTiles.reduce((s, c) => s + c.total, 0);
               const vOverallProgress = vTotalAll > 0 ? Math.round((vTotalBooked / vTotalAll) * 100) : 100;
 
-              // Searchable ledger accounts with prefix-priority
+              // Searchable ledger accounts.
+              //  - Pure-digit input → only accounts whose number STARTS with the digits
+              //    (e.g. "8" → only 8xxx; never 4800/48010 which are cost accounts).
+              //  - Text input → match by name; prefix hits first, then substring.
               const allActiveAccounts = ledgerAccounts.filter((a) => a.isActive);
               function filterLedger(search: string) {
                 if (!search) return allActiveAccounts.filter((a) => a.accountType === "revenue");
+                if (/^\d+$/.test(search)) {
+                  return allActiveAccounts
+                    .filter((a) => a.accountNumber.startsWith(search))
+                    .sort((a, b) => a.accountNumber.localeCompare(b.accountNumber));
+                }
                 const s = search.toLowerCase();
-                const matched = allActiveAccounts.filter((a) => a.accountNumber.startsWith(search) || a.name.toLowerCase().includes(s) || a.accountNumber.includes(search));
-                return matched.sort((a, b) => {
-                  const aPrefix = a.accountNumber.startsWith(search) ? 0 : 1;
-                  const bPrefix = b.accountNumber.startsWith(search) ? 0 : 1;
-                  if (aPrefix !== bPrefix) return aPrefix - bPrefix;
-                  return a.accountNumber.localeCompare(b.accountNumber);
-                });
+                return allActiveAccounts
+                  .filter((a) => a.name.toLowerCase().includes(s))
+                  .sort((a, b) => {
+                    const aPrefix = a.name.toLowerCase().startsWith(s) ? 0 : 1;
+                    const bPrefix = b.name.toLowerCase().startsWith(s) ? 0 : 1;
+                    if (aPrefix !== bPrefix) return aPrefix - bPrefix;
+                    return a.accountNumber.localeCompare(b.accountNumber);
+                  });
               }
 
               // VAT code helpers
@@ -1637,24 +1757,38 @@ function BookkeeperContent() {
                               placeholder="Zoek rekening (nr/naam)..."
                               className="w-full border border-white/20 bg-white/10 text-white placeholder-white/40 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#00AFCB]/50 outline-none" />
                             {showBulkLedgerDrop && bulkFilteredAccounts.length > 0 && (
-                              <div className="absolute z-50 w-72 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
+                              <div className="absolute z-50 w-80 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-56 overflow-y-auto">
                                 {bulkFilteredAccounts.slice(0, 15).map((a) => (
-                                  <button key={a.id} type="button"
-                                    onMouseDown={(e) => e.preventDefault()}
-                                    onClick={() => {
-                                      setBulkLedgerAccount(`${a.accountNumber} ${a.name}`);
-                                      setBulkLedgerSearch(`${a.accountNumber} - ${a.name}`);
-                                      setShowBulkLedgerDrop(false);
-                                      if (a.defaultVatCode && !bulkVatCode) {
-                                        setBulkVatCode(`${a.defaultVatCode.code} ${a.defaultVatCode.name} ${a.defaultVatCode.percentage}%`);
-                                        setBulkVatSearch(`${a.defaultVatCode.code} - ${a.defaultVatCode.name} (${a.defaultVatCode.percentage}%)`);
-                                      }
-                                    }}
-                                    className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm flex items-center gap-2">
-                                    <span className="font-mono text-xs text-gray-400 w-10 shrink-0">{a.accountNumber}</span>
-                                    <span className="text-gray-700 truncate">{a.name}</span>
-                                    {a.defaultVatCode && <span className="ml-auto text-[10px] text-gray-400 shrink-0">{a.defaultVatCode.code}</span>}
-                                  </button>
+                                  <div key={a.id} className="flex items-stretch hover:bg-gray-50">
+                                    <button type="button"
+                                      onMouseDown={(e) => e.preventDefault()}
+                                      onContextMenu={(e) => { e.preventDefault(); openAccountEdit(a); }}
+                                      onTouchStart={() => handleLedgerTouchStart(a)}
+                                      onTouchEnd={handleLedgerTouchEnd}
+                                      onTouchMove={handleLedgerTouchEnd}
+                                      onClick={() => {
+                                        setBulkLedgerAccount(`${a.accountNumber} ${a.name}`);
+                                        setBulkLedgerSearch(`${a.accountNumber} - ${a.name}`);
+                                        setShowBulkLedgerDrop(false);
+                                        if (a.defaultVatCode && !bulkVatCode) {
+                                          setBulkVatCode(`${a.defaultVatCode.code} ${a.defaultVatCode.name} ${a.defaultVatCode.percentage}%`);
+                                          setBulkVatSearch(`${a.defaultVatCode.code} - ${a.defaultVatCode.name} (${a.defaultVatCode.percentage}%)`);
+                                        }
+                                      }}
+                                      className="flex-1 text-left px-3 py-2 text-sm flex items-center gap-2 min-w-0">
+                                      <span className="font-mono text-xs text-gray-400 w-10 shrink-0">{a.accountNumber}</span>
+                                      <span className="text-gray-700 truncate">{a.name}</span>
+                                      {a.defaultVatCode && <span className="ml-auto text-[10px] text-gray-400 shrink-0">{a.defaultVatCode.code}</span>}
+                                    </button>
+                                    <button type="button"
+                                      onMouseDown={(e) => e.preventDefault()}
+                                      onClick={(e) => { e.stopPropagation(); openAccountEdit(a); }}
+                                      title="Rekening bewerken"
+                                      aria-label={`Bewerk ${a.accountNumber} ${a.name}`}
+                                      className="shrink-0 px-2 text-gray-300 hover:text-[#00AFCB] hover:bg-[#E6F9FC] border-l border-gray-100">
+                                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                    </button>
+                                  </div>
                                 ))}
                               </div>
                             )}
@@ -1815,17 +1949,8 @@ function BookkeeperContent() {
                     const modalInv = invoices.find((i) => i.id === bookModalInvoiceId);
                     if (!modalInv) return null;
 
-                    // Use edited amounts if overridden
-                    const effectiveSubtotal = bookModalSubtotal !== null ? bookModalSubtotal : modalInv.subtotal;
-                    const effectiveVat = bookModalVatAmount !== null ? bookModalVatAmount : modalInv.vatAmount;
-
-                    // Compute row 0 remainder
-                    const otherRowsExclTotal = bookModalRows.slice(1).reduce((s, r) => s + (r.exclVat || 0), 0);
-                    const otherRowsVatTotal = bookModalRows.slice(1).reduce((s, r) => s + (r.vatAmount || 0), 0);
-                    const row0ExclVat = effectiveSubtotal - otherRowsExclTotal;
-                    const row0VatAmount = effectiveVat - otherRowsVatTotal;
-                    const totalRowsExcl = row0ExclVat + otherRowsExclTotal;
-                    const totalRowsVat = row0VatAmount + otherRowsVatTotal;
+                    const { effectiveSubtotal, row0ExclVat, row0VatAmount, totalRowsExcl, totalRowsVat } =
+                      deriveBookingTotals(bookModalRows, bookModalSubtotal, modalInv);
 
                     const primaryRow = bookModalRows[0];
                     const canSubmit = primaryRow && primaryRow.ledgerAccount;
@@ -1866,24 +1991,24 @@ function BookkeeperContent() {
                               </div>
                               <div className="flex flex-wrap gap-4 text-xs pt-2 border-t border-gray-200 items-end">
                                 <div>
-                                  <label className="text-gray-500 text-xs block mb-0.5">Subtotaal</label>
-                                  <input type="number" step="0.01"
-                                    value={bookModalSubtotal !== null ? bookModalSubtotal : modalInv.subtotal}
-                                    onChange={(e) => setBookModalSubtotal(parseFloat(e.target.value) || 0)}
+                                  <label className="text-gray-500 text-xs block mb-0.5">Subtotaal (excl. BTW)</label>
+                                  <input type="number" step="0.01" inputMode="decimal"
+                                    value={bookModalSubtotal === null ? modalInv.subtotal : bookModalSubtotal}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      if (v === "") { setBookModalSubtotal(""); return; }
+                                      const n = parseFloat(v);
+                                      setBookModalSubtotal(Number.isNaN(n) ? "" : n);
+                                    }}
                                     className="w-28 border border-gray-200 rounded px-2 py-1 text-sm font-medium text-gray-800 focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
                                 </div>
                                 <div>
-                                  <label className="text-gray-500 text-xs block mb-0.5">BTW</label>
-                                  <input type="number" step="0.01"
-                                    value={bookModalVatAmount !== null ? bookModalVatAmount : modalInv.vatAmount}
-                                    onChange={(e) => setBookModalVatAmount(parseFloat(e.target.value) || 0)}
-                                    className="w-28 border border-gray-200 rounded px-2 py-1 text-sm font-medium text-gray-800 focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
+                                  <span className="text-gray-500 text-xs block mb-0.5">BTW (uit regels)</span>
+                                  <span className="font-medium text-gray-700 text-sm block py-1">{formatCurrency(totalRowsVat)}</span>
                                 </div>
                                 <div>
                                   <span className="text-gray-500 text-xs block mb-0.5">Totaal</span>
-                                  <span className="font-bold text-gray-900 text-sm block py-1">
-                                    {formatCurrency((bookModalSubtotal !== null ? bookModalSubtotal : modalInv.subtotal) + (bookModalVatAmount !== null ? bookModalVatAmount : modalInv.vatAmount))}
-                                  </span>
+                                  <span className="font-bold text-gray-900 text-sm block py-1">{formatCurrency(effectiveSubtotal + totalRowsVat)}</span>
                                 </div>
                               </div>
                             </div>
@@ -1929,24 +2054,42 @@ function BookkeeperContent() {
                                                 placeholder="Zoek rekening..."
                                                 className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
                                               {showLedgerDrop && rowLedgerAccounts.length > 0 && (
-                                                <div className="absolute z-50 w-72 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto left-0">
+                                                <div className="absolute z-50 w-80 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-56 overflow-y-auto left-0">
                                                   {rowLedgerAccounts.slice(0, 15).map((a) => (
-                                                    <button key={a.id} type="button"
-                                                      onMouseDown={(e) => e.preventDefault()}
-                                                      onClick={() => {
-                                                        updateBookingRow(row.id, "ledgerAccount", `${a.accountNumber} ${a.name}`);
-                                                        updateBookingRow(row.id, "ledgerSearch", `${a.accountNumber} - ${a.name}`);
-                                                        setActiveRowDrop(null);
-                                                        if (a.defaultVatCode && !row.vatCode) {
-                                                          updateBookingRow(row.id, "vatCode", `${a.defaultVatCode.code} ${a.defaultVatCode.name} ${a.defaultVatCode.percentage}%`);
-                                                          updateBookingRow(row.id, "vatSearch", `${a.defaultVatCode.code} - ${a.defaultVatCode.name} (${a.defaultVatCode.percentage}%)`);
-                                                        }
-                                                      }}
-                                                      className="w-full text-left px-3 py-2 hover:bg-gray-50 text-xs flex items-center gap-2">
-                                                      <span className="font-mono text-gray-400 w-10 shrink-0">{a.accountNumber}</span>
-                                                      <span className="text-gray-700 truncate">{a.name}</span>
-                                                      {a.defaultVatCode && <span className="ml-auto text-[10px] text-gray-400 shrink-0">{a.defaultVatCode.code}</span>}
-                                                    </button>
+                                                    <div key={a.id} className="flex items-stretch hover:bg-gray-50">
+                                                      <button type="button"
+                                                        onMouseDown={(e) => e.preventDefault()}
+                                                        onContextMenu={(e) => { e.preventDefault(); openAccountEdit(a); }}
+                                                        onTouchStart={() => handleLedgerTouchStart(a)}
+                                                        onTouchEnd={handleLedgerTouchEnd}
+                                                        onTouchMove={handleLedgerTouchEnd}
+                                                        onClick={() => {
+                                                          const patch: Partial<BookingRow> = {
+                                                            ledgerAccount: `${a.accountNumber} ${a.name}`,
+                                                            ledgerSearch: `${a.accountNumber} - ${a.name}`,
+                                                          };
+                                                          if (a.defaultVatCode && !row.vatCode) {
+                                                            patch.vatCode = `${a.defaultVatCode.code} ${a.defaultVatCode.name} ${a.defaultVatCode.percentage}%`;
+                                                            patch.vatSearch = `${a.defaultVatCode.code} - ${a.defaultVatCode.name} (${a.defaultVatCode.percentage}%)`;
+                                                            patch.vatAmount = computeVatAmount(rowExcl, a.defaultVatCode.percentage);
+                                                          }
+                                                          updateBookingRowPatch(row.id, patch);
+                                                          setActiveRowDrop(null);
+                                                        }}
+                                                        className="flex-1 text-left px-3 py-2 text-xs flex items-center gap-2 min-w-0">
+                                                        <span className="font-mono text-gray-400 w-10 shrink-0">{a.accountNumber}</span>
+                                                        <span className="text-gray-700 truncate">{a.name}</span>
+                                                        {a.defaultVatCode && <span className="ml-auto text-[10px] text-gray-400 shrink-0">{a.defaultVatCode.code}</span>}
+                                                      </button>
+                                                      <button type="button"
+                                                        onMouseDown={(e) => e.preventDefault()}
+                                                        onClick={(e) => { e.stopPropagation(); openAccountEdit(a); }}
+                                                        title="Rekening bewerken"
+                                                        aria-label={`Bewerk ${a.accountNumber} ${a.name}`}
+                                                        className="shrink-0 px-2 text-gray-300 hover:text-[#00AFCB] hover:bg-[#E6F9FC] border-l border-gray-100">
+                                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                                      </button>
+                                                    </div>
                                                   ))}
                                                 </div>
                                               )}
@@ -1971,7 +2114,14 @@ function BookkeeperContent() {
                                                   {rowVatCodes.map((v) => (
                                                     <button key={v.id} type="button"
                                                       onMouseDown={(e) => e.preventDefault()}
-                                                      onClick={() => { updateBookingRow(row.id, "vatCode", `${v.code} ${v.name} ${v.percentage}%`); updateBookingRow(row.id, "vatSearch", `${v.code} - ${v.name} (${v.percentage}%)`); setActiveRowDrop(null); }}
+                                                      onClick={() => {
+                                                        updateBookingRowPatch(row.id, {
+                                                          vatCode: `${v.code} ${v.name} ${v.percentage}%`,
+                                                          vatSearch: `${v.code} - ${v.name} (${v.percentage}%)`,
+                                                          vatAmount: computeVatAmount(rowExcl, v.percentage),
+                                                        });
+                                                        setActiveRowDrop(null);
+                                                      }}
                                                       className="w-full text-left px-3 py-2 hover:bg-gray-50 text-xs flex items-center gap-2">
                                                       <span className="font-mono text-blue-600 w-10 shrink-0">{v.code}</span>
                                                       <span className="text-gray-700 truncate">{v.name}</span>
@@ -1991,16 +2141,38 @@ function BookkeeperContent() {
                                           <td className="px-2 py-2 text-right">
                                             {isRow0 && bookModalRows.length > 1 ? (
                                               <span className="text-sm font-medium text-gray-700" title="Automatisch berekend resterend bedrag">{formatCurrency(rowExcl)}</span>
+                                            ) : isRow0 ? (
+                                              <input type="number" step="0.01" inputMode="decimal"
+                                                value={bookModalSubtotal === null ? modalInv.subtotal : bookModalSubtotal}
+                                                onChange={(e) => {
+                                                  const v = e.target.value;
+                                                  if (v === "") { setBookModalSubtotal(""); return; }
+                                                  const n = parseFloat(v);
+                                                  const next = Number.isNaN(n) ? "" : n;
+                                                  setBookModalSubtotal(next);
+                                                  const rate = vatRateFor(row.vatCode);
+                                                  if (rate !== null && typeof next === "number") {
+                                                    updateBookingRowPatch(row.id, { vatAmount: computeVatAmount(next, rate) });
+                                                  }
+                                                }}
+                                                className="w-full border border-blue-200 bg-blue-50/50 rounded px-2 py-1.5 text-xs text-right focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" placeholder="0,00" />
                                             ) : (
-                                              <input type="number" step="0.01" value={isRow0 ? (row.exclVat || "") : (row.exclVat || "")} onChange={(e) => updateBookingRow(row.id, "exclVat", parseFloat(e.target.value) || 0)}
-                                                className={`w-full border rounded px-2 py-1.5 text-xs text-right focus:ring-2 focus:ring-[#00AFCB]/30 outline-none ${isRow0 ? "border-blue-200 bg-blue-50/50" : "border-gray-200"}`} placeholder="0,00" />
+                                              <input type="number" step="0.01" inputMode="decimal" value={row.exclVat || ""}
+                                                onChange={(e) => {
+                                                  const n = parseFloat(e.target.value) || 0;
+                                                  const rate = vatRateFor(row.vatCode);
+                                                  updateBookingRowPatch(row.id, rate !== null ? { exclVat: n, vatAmount: computeVatAmount(n, rate) } : { exclVat: n });
+                                                }}
+                                                className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs text-right focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" placeholder="0,00" />
                                             )}
                                           </td>
                                           <td className="px-2 py-2 text-right">
                                             {isRow0 && bookModalRows.length > 1 ? (
                                               <span className="text-sm font-medium text-gray-500" title="Automatisch berekend resterend BTW">{formatCurrency(rowVat)}</span>
                                             ) : (
-                                              <input type="number" step="0.01" value={isRow0 ? (row.vatAmount || "") : (row.vatAmount || "")} onChange={(e) => updateBookingRow(row.id, "vatAmount", parseFloat(e.target.value) || 0)}
+                                              <input type="number" step="0.01" inputMode="decimal"
+                                                value={isRow0 ? (row0VatAmount || "") : (row.vatAmount || "")}
+                                                onChange={(e) => updateBookingRow(row.id, "vatAmount", parseFloat(e.target.value) || 0)}
                                                 className={`w-full border rounded px-2 py-1.5 text-xs text-right focus:ring-2 focus:ring-[#00AFCB]/30 outline-none ${isRow0 ? "border-blue-200 bg-blue-50/50" : "border-gray-200"}`} placeholder="0,00" />
                                             )}
                                           </td>
@@ -2049,22 +2221,40 @@ function BookkeeperContent() {
                                           placeholder="Zoek rekening..."
                                           className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
                                         {showLedgerDrop && rowLedgerAccounts.length > 0 && (
-                                          <div className="absolute z-50 w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
+                                          <div className="absolute z-50 w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-56 overflow-y-auto">
                                             {rowLedgerAccounts.slice(0, 15).map((a) => (
-                                              <button key={a.id} type="button" onMouseDown={(e) => e.preventDefault()}
-                                                onClick={() => {
-                                                  updateBookingRow(row.id, "ledgerAccount", `${a.accountNumber} ${a.name}`);
-                                                  updateBookingRow(row.id, "ledgerSearch", `${a.accountNumber} - ${a.name}`);
-                                                  setActiveRowDrop(null);
-                                                  if (a.defaultVatCode && !row.vatCode) {
-                                                    updateBookingRow(row.id, "vatCode", `${a.defaultVatCode.code} ${a.defaultVatCode.name} ${a.defaultVatCode.percentage}%`);
-                                                    updateBookingRow(row.id, "vatSearch", `${a.defaultVatCode.code} - ${a.defaultVatCode.name} (${a.defaultVatCode.percentage}%)`);
-                                                  }
-                                                }}
-                                                className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm flex items-center gap-2">
-                                                <span className="font-mono text-xs text-gray-400 w-10 shrink-0">{a.accountNumber}</span>
-                                                <span className="text-gray-700 truncate">{a.name}</span>
-                                              </button>
+                                              <div key={a.id} className="flex items-stretch hover:bg-gray-50">
+                                                <button type="button" onMouseDown={(e) => e.preventDefault()}
+                                                  onContextMenu={(e) => { e.preventDefault(); openAccountEdit(a); }}
+                                                  onTouchStart={() => handleLedgerTouchStart(a)}
+                                                  onTouchEnd={handleLedgerTouchEnd}
+                                                  onTouchMove={handleLedgerTouchEnd}
+                                                  onClick={() => {
+                                                    const patch: Partial<BookingRow> = {
+                                                      ledgerAccount: `${a.accountNumber} ${a.name}`,
+                                                      ledgerSearch: `${a.accountNumber} - ${a.name}`,
+                                                    };
+                                                    if (a.defaultVatCode && !row.vatCode) {
+                                                      patch.vatCode = `${a.defaultVatCode.code} ${a.defaultVatCode.name} ${a.defaultVatCode.percentage}%`;
+                                                      patch.vatSearch = `${a.defaultVatCode.code} - ${a.defaultVatCode.name} (${a.defaultVatCode.percentage}%)`;
+                                                      patch.vatAmount = computeVatAmount(rowExcl, a.defaultVatCode.percentage);
+                                                    }
+                                                    updateBookingRowPatch(row.id, patch);
+                                                    setActiveRowDrop(null);
+                                                  }}
+                                                  className="flex-1 text-left px-3 py-2 text-sm flex items-center gap-2 min-w-0">
+                                                  <span className="font-mono text-xs text-gray-400 w-10 shrink-0">{a.accountNumber}</span>
+                                                  <span className="text-gray-700 truncate">{a.name}</span>
+                                                  {a.defaultVatCode && <span className="ml-auto text-[10px] text-gray-400 shrink-0">{a.defaultVatCode.code}</span>}
+                                                </button>
+                                                <button type="button" onMouseDown={(e) => e.preventDefault()}
+                                                  onClick={(e) => { e.stopPropagation(); openAccountEdit(a); }}
+                                                  title="Rekening bewerken"
+                                                  aria-label={`Bewerk ${a.accountNumber} ${a.name}`}
+                                                  className="shrink-0 px-3 text-gray-300 hover:text-[#00AFCB] hover:bg-[#E6F9FC] border-l border-gray-100">
+                                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                                </button>
+                                              </div>
                                             ))}
                                           </div>
                                         )}
@@ -2081,7 +2271,14 @@ function BookkeeperContent() {
                                           <div className="absolute z-50 w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
                                             {rowVatCodes.map((v) => (
                                               <button key={v.id} type="button" onMouseDown={(e) => e.preventDefault()}
-                                                onClick={() => { updateBookingRow(row.id, "vatCode", `${v.code} ${v.name} ${v.percentage}%`); updateBookingRow(row.id, "vatSearch", `${v.code} - ${v.name} (${v.percentage}%)`); setActiveRowDrop(null); }}
+                                                onClick={() => {
+                                                  updateBookingRowPatch(row.id, {
+                                                    vatCode: `${v.code} ${v.name} ${v.percentage}%`,
+                                                    vatSearch: `${v.code} - ${v.name} (${v.percentage}%)`,
+                                                    vatAmount: computeVatAmount(rowExcl, v.percentage),
+                                                  });
+                                                  setActiveRowDrop(null);
+                                                }}
                                                 className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm flex items-center gap-2">
                                                 <span className="font-mono text-xs text-blue-600 w-10 shrink-0">{v.code}</span>
                                                 <span className="text-gray-700 truncate">{v.name}</span>
@@ -2096,9 +2293,29 @@ function BookkeeperContent() {
                                           <label className="text-[10px] text-gray-500">Excl. BTW</label>
                                           {isRow0 && bookModalRows.length > 1 ? (
                                             <p className="text-sm font-medium text-gray-700 px-2 py-1.5">{formatCurrency(rowExcl)}</p>
+                                          ) : isRow0 ? (
+                                            <input type="number" step="0.01" inputMode="decimal"
+                                              value={bookModalSubtotal === null ? modalInv.subtotal : bookModalSubtotal}
+                                              onChange={(e) => {
+                                                const v = e.target.value;
+                                                if (v === "") { setBookModalSubtotal(""); return; }
+                                                const n = parseFloat(v);
+                                                const next = Number.isNaN(n) ? "" : n;
+                                                setBookModalSubtotal(next);
+                                                const rate = vatRateFor(row.vatCode);
+                                                if (rate !== null && typeof next === "number") {
+                                                  updateBookingRowPatch(row.id, { vatAmount: computeVatAmount(next, rate) });
+                                                }
+                                              }}
+                                              className="w-full border border-blue-200 bg-blue-50/50 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" placeholder="0,00" />
                                           ) : (
-                                            <input type="number" step="0.01" value={isRow0 ? (row.exclVat || "") : (row.exclVat || "")} onChange={(e) => updateBookingRow(row.id, "exclVat", parseFloat(e.target.value) || 0)}
-                                              className={`w-full border rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none ${isRow0 ? "border-blue-200 bg-blue-50/50" : "border-gray-200"}`} placeholder="0,00" />
+                                            <input type="number" step="0.01" inputMode="decimal" value={row.exclVat || ""}
+                                              onChange={(e) => {
+                                                const n = parseFloat(e.target.value) || 0;
+                                                const rate = vatRateFor(row.vatCode);
+                                                updateBookingRowPatch(row.id, rate !== null ? { exclVat: n, vatAmount: computeVatAmount(n, rate) } : { exclVat: n });
+                                              }}
+                                              className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" placeholder="0,00" />
                                           )}
                                         </div>
                                         <div>
@@ -2106,7 +2323,9 @@ function BookkeeperContent() {
                                           {isRow0 && bookModalRows.length > 1 ? (
                                             <p className="text-sm font-medium text-gray-500 px-2 py-1.5">{formatCurrency(rowVat)}</p>
                                           ) : (
-                                            <input type="number" step="0.01" value={isRow0 ? (row.vatAmount || "") : (row.vatAmount || "")} onChange={(e) => updateBookingRow(row.id, "vatAmount", parseFloat(e.target.value) || 0)}
+                                            <input type="number" step="0.01" inputMode="decimal"
+                                              value={isRow0 ? (row0VatAmount || "") : (row.vatAmount || "")}
+                                              onChange={(e) => updateBookingRow(row.id, "vatAmount", parseFloat(e.target.value) || 0)}
                                               className={`w-full border rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none ${isRow0 ? "border-blue-200 bg-blue-50/50" : "border-gray-200"}`} placeholder="0,00" />
                                           )}
                                         </div>
@@ -4183,41 +4402,6 @@ function BookkeeperContent() {
         }
         function isCatExpanded(cat: string) { return isAllExpanded || expandedCategories.has(cat); }
 
-        function openAccountAdd() {
-          setEditingAccount(null);
-          setAccountForm({ accountNumber: "", name: "", description: "", accountType: "expense", category: "", statementSection: "", normalBalance: "debit", isBalanceSheet: false, vatCodeId: "" });
-          setShowAccountModal(true);
-        }
-        function openAccountEdit(a: LedgerAccountData) {
-          setEditingAccount(a);
-          setAccountForm({ accountNumber: a.accountNumber, name: a.name, description: a.description || "", accountType: a.accountType, category: a.category, statementSection: a.statementSection || "", normalBalance: a.normalBalance, isBalanceSheet: a.isBalanceSheet, vatCodeId: a.vatCodeId || "" });
-          setShowAccountModal(true);
-        }
-        async function saveAccount() {
-          setAccountSaving(true);
-          try {
-            const payload = { ...accountForm, vatCodeId: accountForm.vatCodeId || null, sortOrder: parseInt(accountForm.accountNumber, 10) || 0 };
-            const res = editingAccount
-              ? await fetch(`/api/ledger-accounts/${editingAccount.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
-              : await fetch("/api/ledger-accounts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-            if (res.ok) {
-              const refreshed = await fetch("/api/ledger-accounts").then((r) => r.json());
-              setLedgerAccounts(refreshed);
-              setShowAccountModal(false);
-            }
-          } catch { /* */ }
-          finally { setAccountSaving(false); }
-        }
-        async function toggleAccountActive(a: LedgerAccountData) {
-          const res = await fetch(`/api/ledger-accounts/${a.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ isActive: !a.isActive }) });
-          if (res.ok) setLedgerAccounts((prev) => prev.map((x) => x.id === a.id ? { ...x, isActive: !x.isActive } : x));
-        }
-        async function deleteAccount(a: LedgerAccountData) {
-          if (a.isSystem) return;
-          const res = await fetch(`/api/ledger-accounts/${a.id}`, { method: "DELETE" });
-          if (res.ok) setLedgerAccounts((prev) => prev.filter((x) => x.id !== a.id));
-        }
-
         function openVatAdd() {
           setEditingVat(null);
           setVatForm({ code: "", name: "", description: "", percentage: "21", type: "sales", rubricCode: "", ledgerAccountId: "" });
@@ -4347,100 +4531,6 @@ function BookkeeperContent() {
                   )}
                 </div>
 
-                {/* Account modal */}
-                {showAccountModal && (
-                  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowAccountModal(false)}>
-                    <div className="bg-white rounded-xl max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-                      <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                        <h3 className="text-base font-semibold text-[#3C2C1E]">{editingAccount ? "Rekening bewerken" : "Nieuwe rekening"}</h3>
-                        <button onClick={() => setShowAccountModal(false)} className="p-1 hover:bg-gray-100 rounded-lg"><svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
-                      </div>
-                      <div className="p-6 space-y-4">
-                        {editingAccount?.isSystem && (
-                          <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 text-xs text-amber-700">Dit is een systeemrekening. Rekeningnummer en type kunnen niet worden gewijzigd.</div>
-                        )}
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Rekeningnummer</label>
-                            <input type="text" maxLength={4} value={accountForm.accountNumber} onChange={(e) => setAccountForm((p) => ({ ...p, accountNumber: e.target.value.replace(/\D/g, "").slice(0, 4) }))} disabled={editingAccount?.isSystem}
-                              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30 disabled:bg-gray-50 disabled:text-gray-400" placeholder="0000" />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
-                            <select value={accountForm.accountType} onChange={(e) => setAccountForm((p) => ({ ...p, accountType: e.target.value }))} disabled={editingAccount?.isSystem}
-                              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30 disabled:bg-gray-50">
-                              <option value="asset">Actief</option><option value="liability">Passief</option><option value="equity">Eigen vermogen</option>
-                              <option value="revenue">Opbrengst</option><option value="expense">Kosten</option><option value="contra">Contra</option>
-                            </select>
-                          </div>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Naam</label>
-                          <input type="text" value={accountForm.name} onChange={(e) => setAccountForm((p) => ({ ...p, name: e.target.value }))}
-                            className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30" placeholder="Naam rekening" />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Omschrijving</label>
-                          <input type="text" value={accountForm.description} onChange={(e) => setAccountForm((p) => ({ ...p, description: e.target.value }))}
-                            className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30" placeholder="Optionele omschrijving" />
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Categorie</label>
-                            <input type="text" value={accountForm.category} onChange={(e) => setAccountForm((p) => ({ ...p, category: e.target.value }))}
-                              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30" placeholder="Bijv. Huisvestingskosten" />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Jaarrekeningsectie</label>
-                            <input type="text" value={accountForm.statementSection} onChange={(e) => setAccountForm((p) => ({ ...p, statementSection: e.target.value }))}
-                              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30" placeholder="Bijv. Bedrijfskosten" />
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Normaalstand</label>
-                            <select value={accountForm.normalBalance} onChange={(e) => setAccountForm((p) => ({ ...p, normalBalance: e.target.value }))}
-                              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30">
-                              <option value="debit">Debet</option><option value="credit">Credit</option>
-                            </select>
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Standaard BTW-code</label>
-                            <select value={accountForm.vatCodeId} onChange={(e) => setAccountForm((p) => ({ ...p, vatCodeId: e.target.value }))}
-                              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30">
-                              <option value="">Geen</option>
-                              {vatCodes.filter((v) => v.isActive).map((v) => <option key={v.id} value={v.id}>{v.code} - {v.name} ({v.percentage}%)</option>)}
-                            </select>
-                          </div>
-                        </div>
-                        <label className="flex items-center gap-2 text-sm text-gray-600">
-                          <input type="checkbox" checked={accountForm.isBalanceSheet} onChange={(e) => setAccountForm((p) => ({ ...p, isBalanceSheet: e.target.checked }))} className="rounded border-gray-300" />
-                          Balansrekening
-                        </label>
-                      </div>
-                      <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
-                        <div>
-                          {editingAccount && !editingAccount.isSystem && (
-                            <button onClick={() => { deleteAccount(editingAccount); setShowAccountModal(false); }} className="text-xs text-red-500 hover:text-red-700">Verwijderen</button>
-                          )}
-                        </div>
-                        <div className="flex gap-2">
-                          {editingAccount && (
-                            <button onClick={() => { toggleAccountActive(editingAccount); setShowAccountModal(false); }}
-                              className="px-3 py-2 rounded-lg text-sm border border-gray-200 hover:bg-gray-50 transition-colors">
-                              {editingAccount.isActive ? "Deactiveren" : "Activeren"}
-                            </button>
-                          )}
-                          <button onClick={() => setShowAccountModal(false)} className="px-4 py-2 rounded-lg text-sm border border-gray-200 hover:bg-gray-50 transition-colors">Annuleren</button>
-                          <button onClick={saveAccount} disabled={accountSaving || !accountForm.accountNumber || !accountForm.name || !accountForm.category}
-                            className="px-4 py-2 bg-[#00AFCB] text-white rounded-lg text-sm font-medium hover:bg-[#008FA8] transition-colors disabled:opacity-50">
-                            {accountSaving ? "Opslaan..." : "Opslaan"}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 
@@ -4817,6 +4907,103 @@ function BookkeeperContent() {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Chart-of-accounts edit modal — shared across the page. Rendered at the top
+          level with z-[60] so it layers above the booking modal (z-50), allowing
+          accountants to edit an account without leaving the booking flow. */}
+      {showAccountModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4" onClick={() => setShowAccountModal(false)}>
+          <div className="bg-white rounded-xl max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-base font-semibold text-[#3C2C1E]">{editingAccount ? "Rekening bewerken" : "Nieuwe rekening"}</h3>
+              <button onClick={() => setShowAccountModal(false)} className="p-1 hover:bg-gray-100 rounded-lg"><svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+            </div>
+            <div className="p-6 space-y-4">
+              {editingAccount?.isSystem && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 text-xs text-amber-700">Dit is een systeemrekening. Rekeningnummer en type kunnen niet worden gewijzigd.</div>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Rekeningnummer</label>
+                  <input type="text" maxLength={4} value={accountForm.accountNumber} onChange={(e) => setAccountForm((p) => ({ ...p, accountNumber: e.target.value.replace(/\D/g, "").slice(0, 4) }))} disabled={editingAccount?.isSystem}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30 disabled:bg-gray-50 disabled:text-gray-400" placeholder="0000" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+                  <select value={accountForm.accountType} onChange={(e) => setAccountForm((p) => ({ ...p, accountType: e.target.value }))} disabled={editingAccount?.isSystem}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30 disabled:bg-gray-50">
+                    <option value="asset">Actief</option><option value="liability">Passief</option><option value="equity">Eigen vermogen</option>
+                    <option value="revenue">Opbrengst</option><option value="expense">Kosten</option><option value="contra">Contra</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Naam</label>
+                <input type="text" value={accountForm.name} onChange={(e) => setAccountForm((p) => ({ ...p, name: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30" placeholder="Naam rekening" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Omschrijving</label>
+                <input type="text" value={accountForm.description} onChange={(e) => setAccountForm((p) => ({ ...p, description: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30" placeholder="Optionele omschrijving" />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Categorie</label>
+                  <input type="text" value={accountForm.category} onChange={(e) => setAccountForm((p) => ({ ...p, category: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30" placeholder="Bijv. Huisvestingskosten" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Jaarrekeningsectie</label>
+                  <input type="text" value={accountForm.statementSection} onChange={(e) => setAccountForm((p) => ({ ...p, statementSection: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30" placeholder="Bijv. Bedrijfskosten" />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Normaalstand</label>
+                  <select value={accountForm.normalBalance} onChange={(e) => setAccountForm((p) => ({ ...p, normalBalance: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30">
+                    <option value="debit">Debet</option><option value="credit">Credit</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Standaard BTW-code</label>
+                  <select value={accountForm.vatCodeId} onChange={(e) => setAccountForm((p) => ({ ...p, vatCodeId: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00AFCB]/30">
+                    <option value="">Geen</option>
+                    {vatCodes.filter((v) => v.isActive).map((v) => <option key={v.id} value={v.id}>{v.code} - {v.name} ({v.percentage}%)</option>)}
+                  </select>
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-gray-600">
+                <input type="checkbox" checked={accountForm.isBalanceSheet} onChange={(e) => setAccountForm((p) => ({ ...p, isBalanceSheet: e.target.checked }))} className="rounded border-gray-300" />
+                Balansrekening
+              </label>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                {editingAccount && !editingAccount.isSystem && (
+                  <button onClick={() => { deleteAccount(editingAccount); setShowAccountModal(false); }} className="text-xs text-red-500 hover:text-red-700">Verwijderen</button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {editingAccount && (
+                  <button onClick={() => { toggleAccountActive(editingAccount); setShowAccountModal(false); }}
+                    className="px-3 py-2 rounded-lg text-sm border border-gray-200 hover:bg-gray-50 transition-colors">
+                    {editingAccount.isActive ? "Deactiveren" : "Activeren"}
+                  </button>
+                )}
+                <button onClick={() => setShowAccountModal(false)} className="px-4 py-2 rounded-lg text-sm border border-gray-200 hover:bg-gray-50 transition-colors">Annuleren</button>
+                <button onClick={saveAccount} disabled={accountSaving || !accountForm.accountNumber || !accountForm.name || !accountForm.category}
+                  className="px-4 py-2 bg-[#00AFCB] text-white rounded-lg text-sm font-medium hover:bg-[#008FA8] transition-colors disabled:opacity-50">
+                  {accountSaving ? "Opslaan..." : "Opslaan"}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

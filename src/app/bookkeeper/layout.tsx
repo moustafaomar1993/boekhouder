@@ -39,12 +39,19 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const lastRefresh = useRef(0);
   const [sidebarCounts, setSidebarCounts] = useState<{ toProcess: number; overdue: number; inkoopNew: number; boekingenNew: number; boekingenOldQ: number }>({ toProcess: 0, overdue: 0, inkoopNew: 0, boekingenNew: 0, boekingenOldQ: 0 });
-  const [verkoopHover, setVerkoopHover] = useState(false);
-  const verkoopHoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const verkoopLinkRef = useRef<HTMLDivElement>(null);
-  const verkoopPopupRef = useRef<HTMLDivElement>(null);
-  const [verkoopPopupPos, setVerkoopPopupPos] = useState<{ top: number; left: number } | null>(null);
+  // Generic per-module hover popup state. `hoveredModule` identifies which sidebar
+  // module the popup belongs to; `modulePopupPos` is derived from that module's
+  // link rect so the popup's top aligns with the button top.
+  const [hoveredModule, setHoveredModule] = useState<string | null>(null);
+  const [modulePopupPos, setModulePopupPos] = useState<{ top: number; left: number } | null>(null);
+  const moduleHoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const moduleLinkRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  // The 48px right-offset specified by the design. Applied AFTER aligning
+  // the popup top with the relevant sidebar button's top edge.
+  const MODULE_POPUP_RIGHT_OFFSET = 48;
   const [openInvoices, setOpenInvoices] = useState<{ id: string; invoiceNumber: string; customerName: string; total: number; dueDate: string; status: string }[]>([]);
+  const [openPurchases, setOpenPurchases] = useState<{ id: string; fileName: string; supplierName: string | null; amount: number | null; totalAmount: number | null; status: string }[]>([]);
+  const [oldQuarterBookings, setOldQuarterBookings] = useState<{ id: string; invoiceNumber: string; customerName: string; total: number; date: string }[]>([]);
 
   const isMainPage = pathname === "/bookkeeper";
   const activeSection = isMainPage
@@ -80,9 +87,9 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
     return () => { document.body.style.overflow = ""; };
   }, [mobileMenuOpen]);
 
-  // Fetch sidebar badge counts + open invoices for hover
+  // Fetch sidebar badge counts + lists used by the per-module hover popups
   useEffect(() => {
-    // Verkoop badges
+    // Verkoop + Boekingen
     fetch("/api/invoices").then((r) => r.ok ? r.json() : []).then((invs: { id: string; invoiceNumber: string; customerName: string; total: number; bookkeepingStatus: string; status: string; dueDate: string; date: string }[]) => {
       if (!Array.isArray(invs)) return;
       const toProcess = invs.filter((i) => i.bookkeepingStatus === "pending" || i.bookkeepingStatus === "to_book").length;
@@ -92,26 +99,56 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
       const booked = invs.filter((i) => i.bookkeepingStatus === "booked");
       const currentQ = Math.floor(now.getMonth() / 3);
       const currentY = now.getFullYear();
-      const boekingenOldQ = booked.filter((i) => {
+      const oldQuarter = booked.filter((i) => {
         const d = new Date(i.date);
         const q = Math.floor(d.getMonth() / 3);
         return d.getFullYear() < currentY || (d.getFullYear() === currentY && q < currentQ);
-      }).length;
-      setSidebarCounts(prev => ({ ...prev, toProcess, overdue, boekingenNew: booked.length, boekingenOldQ }));
+      });
+      setSidebarCounts(prev => ({ ...prev, toProcess, overdue, boekingenNew: booked.length, boekingenOldQ: oldQuarter.length }));
       const open = invs
         .filter((i) => i.status === "sent" || i.status === "overdue" || i.bookkeepingStatus === "pending" || i.bookkeepingStatus === "to_book")
         .sort((a, b) => b.date.localeCompare(a.date))
         .slice(0, 8)
         .map((i) => ({ id: i.id, invoiceNumber: i.invoiceNumber, customerName: i.customerName, total: i.total, dueDate: i.dueDate, status: i.status }));
       setOpenInvoices(open);
+      const oldList = oldQuarter
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .slice(0, 8)
+        .map((i) => ({ id: i.id, invoiceNumber: i.invoiceNumber, customerName: i.customerName, total: i.total, date: i.date }));
+      setOldQuarterBookings(oldList);
     }).catch(() => {});
-    // Inkoop badge
-    fetch("/api/purchases/all").then((r) => r.ok ? r.json() : []).then((docs: { status: string }[]) => {
+    // Inkoop
+    fetch("/api/purchases/all").then((r) => r.ok ? r.json() : []).then((docs: { id: string; fileName: string; supplierName: string | null; amount: number | null; totalAmount: number | null; status: string; createdAt?: string }[]) => {
       if (!Array.isArray(docs)) return;
-      const inkoopNew = docs.filter((d) => d.status === "uploaded").length;
-      setSidebarCounts(prev => ({ ...prev, inkoopNew }));
+      const pending = docs.filter((d) => d.status === "uploaded");
+      setSidebarCounts(prev => ({ ...prev, inkoopNew: pending.length }));
+      const list = pending
+        .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""))
+        .slice(0, 8)
+        .map((d) => ({ id: d.id, fileName: d.fileName, supplierName: d.supplierName, amount: d.amount, totalAmount: d.totalAmount, status: d.status }));
+      setOpenPurchases(list);
     }).catch(() => {});
   }, []);
+
+  // Open the hover popup for a given sidebar module. Aligns the popup top with
+  // the button's top edge and shifts MODULE_POPUP_RIGHT_OFFSET px to the right
+  // of the button's right edge so the popup feels anchored to that specific
+  // sidebar button rather than floating at a hard-coded position.
+  function openModulePopup(moduleKey: string) {
+    if (moduleHoverTimeout.current) { clearTimeout(moduleHoverTimeout.current); moduleHoverTimeout.current = null; }
+    const el = moduleLinkRefs.current[moduleKey];
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setModulePopupPos({ top: rect.top, left: rect.right + MODULE_POPUP_RIGHT_OFFSET });
+    setHoveredModule(moduleKey);
+  }
+  function scheduleCloseModulePopup() {
+    if (moduleHoverTimeout.current) clearTimeout(moduleHoverTimeout.current);
+    moduleHoverTimeout.current = setTimeout(() => setHoveredModule(null), 200);
+  }
+  function cancelCloseModulePopup() {
+    if (moduleHoverTimeout.current) { clearTimeout(moduleHoverTimeout.current); moduleHoverTimeout.current = null; }
+  }
 
   const navContent = (
     <>
@@ -147,49 +184,103 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
               )}
             </Link>
           );
-          // Verkoop hover dropdown with open invoices
-          if (item.key === "verkoop") {
+          // Modules with a hover popup. Each entry supplies its popup content +
+          // the "has anything to show" check. Positioning is driven by the
+          // shared openModulePopup helper so every popup feels anchored to its
+          // own sidebar button and gets the same 48px right offset.
+          const hasVerkoopItems = openInvoices.length > 0;
+          const hasInkoopItems = openPurchases.length > 0;
+          const hasBoekingenItems = oldQuarterBookings.length > 0;
+          const popupConfig: Record<string, { hasItems: boolean }> = {
+            verkoop: { hasItems: hasVerkoopItems },
+            inkoop: { hasItems: hasInkoopItems },
+            boekingen: { hasItems: hasBoekingenItems },
+          };
+          if (item.key in popupConfig) {
+            const { hasItems } = popupConfig[item.key];
             return (
-              <div key={item.key} className="relative" ref={verkoopLinkRef}
-                onMouseEnter={() => {
-                  if (verkoopHoverTimeout.current) clearTimeout(verkoopHoverTimeout.current);
-                  if (verkoopLinkRef.current) {
-                    const rect = verkoopLinkRef.current.getBoundingClientRect();
-                    // Flush against the sidebar right edge, aligned with the Verkoop link top
-                    setVerkoopPopupPos({ top: rect.top, left: 250 });
-                  }
-                  setVerkoopHover(true);
-                }}
-                onMouseLeave={() => { verkoopHoverTimeout.current = setTimeout(() => setVerkoopHover(false), 200); }}>
+              <div key={item.key} className="relative"
+                ref={(el) => { moduleLinkRefs.current[item.key] = el; }}
+                onMouseEnter={() => openModulePopup(item.key)}
+                onMouseLeave={scheduleCloseModulePopup}>
                 {linkEl}
-                {verkoopHover && openInvoices.length > 0 && verkoopPopupPos && typeof window !== "undefined" && window.innerWidth >= 1024 && createPortal(
-                  <div ref={verkoopPopupRef}
-                    className="fixed w-72 bg-white rounded-r-xl rounded-bl-xl shadow-[4px_4px_20px_-2px_rgba(0,0,0,0.12)] border border-gray-200 border-l-0 z-[9999] py-2 max-h-[360px] overflow-y-auto"
-                    style={{ top: verkoopPopupPos.top, left: verkoopPopupPos.left - 1 }}
-                    onMouseEnter={() => { if (verkoopHoverTimeout.current) clearTimeout(verkoopHoverTimeout.current); }}
-                    onMouseLeave={() => { verkoopHoverTimeout.current = setTimeout(() => setVerkoopHover(false), 200); }}>
-                    <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Openstaand ({openInvoices.length}{openInvoices.length >= 8 ? "+" : ""})</p>
-                    {openInvoices.map((inv) => {
-                      const isOverdue = inv.status === "overdue" || (inv.status === "sent" && new Date(inv.dueDate) < new Date());
-                      return (
-                        <Link key={inv.id} href={`/bookkeeper/invoices/${inv.id}`}
-                          onClick={() => { setVerkoopHover(false); setMobileMenuOpen(false); }}
-                          className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 transition-colors">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-xs font-medium text-gray-900">{inv.invoiceNumber}</span>
-                              {isOverdue && <span className="px-1 py-0.5 rounded text-[8px] font-bold bg-red-100 text-red-600">VERLOPEN</span>}
+                {hoveredModule === item.key && hasItems && modulePopupPos && typeof window !== "undefined" && window.innerWidth >= 1024 && createPortal(
+                  <div
+                    className="fixed w-72 bg-white rounded-xl shadow-[4px_4px_20px_-2px_rgba(0,0,0,0.12)] border border-gray-200 z-[9999] py-2 max-h-[360px] overflow-y-auto"
+                    style={{ top: modulePopupPos.top, left: modulePopupPos.left }}
+                    onMouseEnter={cancelCloseModulePopup}
+                    onMouseLeave={scheduleCloseModulePopup}>
+                    {item.key === "verkoop" && (
+                      <>
+                        <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Openstaand ({openInvoices.length}{openInvoices.length >= 8 ? "+" : ""})</p>
+                        {openInvoices.map((inv) => {
+                          const isOverdue = inv.status === "overdue" || (inv.status === "sent" && new Date(inv.dueDate) < new Date());
+                          return (
+                            <Link key={inv.id} href={`/bookkeeper/invoices/${inv.id}`}
+                              onClick={() => { setHoveredModule(null); setMobileMenuOpen(false); }}
+                              className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 transition-colors">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs font-medium text-gray-900">{inv.invoiceNumber}</span>
+                                  {isOverdue && <span className="px-1 py-0.5 rounded text-[8px] font-bold bg-red-100 text-red-600">VERLOPEN</span>}
+                                </div>
+                                <p className="text-[11px] text-gray-500 truncate">{inv.customerName}</p>
+                              </div>
+                              <span className="text-xs font-semibold text-gray-700 shrink-0">{new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(inv.total)}</span>
+                            </Link>
+                          );
+                        })}
+                        <div className="border-t border-gray-100 mt-1 pt-1 px-3">
+                          <Link href="/bookkeeper?section=verkoop" onClick={() => { setHoveredModule(null); setMobileMenuOpen(false); }}
+                            className="text-[11px] text-[#00AFCB] font-medium hover:text-[#004854]">Alle facturen bekijken &rarr;</Link>
+                        </div>
+                      </>
+                    )}
+                    {item.key === "inkoop" && (
+                      <>
+                        <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Nieuw geüpload ({openPurchases.length}{openPurchases.length >= 8 ? "+" : ""})</p>
+                        {openPurchases.map((doc) => (
+                          <Link key={doc.id} href={`/bookkeeper?section=inkoop`}
+                            onClick={() => { setHoveredModule(null); setMobileMenuOpen(false); }}
+                            className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 transition-colors">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-medium text-gray-900 truncate">{doc.supplierName || doc.fileName}</p>
+                              <p className="text-[11px] text-gray-500 truncate">{doc.fileName}</p>
                             </div>
-                            <p className="text-[11px] text-gray-500 truncate">{inv.customerName}</p>
-                          </div>
-                          <span className="text-xs font-semibold text-gray-700 shrink-0">{new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(inv.total)}</span>
-                        </Link>
-                      );
-                    })}
-                    <div className="border-t border-gray-100 mt-1 pt-1 px-3">
-                      <Link href="/bookkeeper?section=verkoop" onClick={() => { setVerkoopHover(false); setMobileMenuOpen(false); }}
-                        className="text-[11px] text-[#00AFCB] font-medium hover:text-[#004854]">Alle facturen bekijken &rarr;</Link>
-                    </div>
+                            {(doc.totalAmount ?? doc.amount) != null && (
+                              <span className="text-xs font-semibold text-gray-700 shrink-0">{new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format((doc.totalAmount ?? doc.amount) as number)}</span>
+                            )}
+                          </Link>
+                        ))}
+                        <div className="border-t border-gray-100 mt-1 pt-1 px-3">
+                          <Link href="/bookkeeper?section=inkoop" onClick={() => { setHoveredModule(null); setMobileMenuOpen(false); }}
+                            className="text-[11px] text-[#00AFCB] font-medium hover:text-[#004854]">Alle inkoopdocumenten bekijken &rarr;</Link>
+                        </div>
+                      </>
+                    )}
+                    {item.key === "boekingen" && (
+                      <>
+                        <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Ouder kwartaal ({oldQuarterBookings.length}{oldQuarterBookings.length >= 8 ? "+" : ""})</p>
+                        {oldQuarterBookings.map((inv) => (
+                          <Link key={inv.id} href={`/bookkeeper/invoices/${inv.id}`}
+                            onClick={() => { setHoveredModule(null); setMobileMenuOpen(false); }}
+                            className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 transition-colors">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-medium text-gray-900">{inv.invoiceNumber}</span>
+                                <span className="px-1 py-0.5 rounded text-[8px] font-bold bg-red-100 text-red-600">OUDER KW</span>
+                              </div>
+                              <p className="text-[11px] text-gray-500 truncate">{inv.customerName}</p>
+                            </div>
+                            <span className="text-xs font-semibold text-gray-700 shrink-0">{new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(inv.total)}</span>
+                          </Link>
+                        ))}
+                        <div className="border-t border-gray-100 mt-1 pt-1 px-3">
+                          <Link href="/bookkeeper?section=boekingen" onClick={() => { setHoveredModule(null); setMobileMenuOpen(false); }}
+                            className="text-[11px] text-[#00AFCB] font-medium hover:text-[#004854]">Alle boekingen bekijken &rarr;</Link>
+                        </div>
+                      </>
+                    )}
                   </div>,
                   document.body
                 )}
