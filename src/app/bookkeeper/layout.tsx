@@ -45,9 +45,15 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
   const [hoveredModule, setHoveredModule] = useState<string | null>(null);
   const [modulePopupPos, setModulePopupPos] = useState<{ top: number; left: number } | null>(null);
   const moduleHoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // IMPORTANT: these refs must only be attached from the DESKTOP sidebar. The
+  // mobile sidebar renders the same nav markup but is `display:none` at lg+
+  // widths; its elements return a zero bounding rect which, if written here,
+  // would push the popup to (0, 0) in the top-left corner of the viewport.
   const moduleLinkRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  // The 48px right-offset specified by the design. Applied AFTER aligning
-  // the popup top with the relevant sidebar button's top edge.
+  const desktopAsideRef = useRef<HTMLElement | null>(null);
+  // 48 px gap between the sidebar's right edge and the popup's left edge.
+  // Measured from the sidebar edge — not from the popup's previous position
+  // and not from the icon — so the popup sits clearly outside the sidebar.
   const MODULE_POPUP_RIGHT_OFFSET = 48;
   const [openInvoices, setOpenInvoices] = useState<{ id: string; invoiceNumber: string; customerName: string; total: number; dueDate: string; status: string }[]>([]);
   const [openPurchases, setOpenPurchases] = useState<{ id: string; fileName: string; supplierName: string | null; amount: number | null; totalAmount: number | null; status: string }[]>([]);
@@ -130,16 +136,23 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
     }).catch(() => {});
   }, []);
 
-  // Open the hover popup for a given sidebar module. Aligns the popup top with
-  // the button's top edge and shifts MODULE_POPUP_RIGHT_OFFSET px to the right
-  // of the button's right edge so the popup feels anchored to that specific
-  // sidebar button rather than floating at a hard-coded position.
+  // Open the hover popup for a given sidebar module.
+  //   - vertical: top edge of the popup == top edge of the active module button
+  //   - horizontal: 48 px to the right of the desktop sidebar's right edge
+  // If either reference element is missing or has a zero rect (e.g. the mobile
+  // sidebar is currently `display:none`), we bail out instead of guessing.
   function openModulePopup(moduleKey: string) {
     if (moduleHoverTimeout.current) { clearTimeout(moduleHoverTimeout.current); moduleHoverTimeout.current = null; }
     const el = moduleLinkRefs.current[moduleKey];
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    setModulePopupPos({ top: rect.top, left: rect.right + MODULE_POPUP_RIGHT_OFFSET });
+    const aside = desktopAsideRef.current;
+    if (!el || !aside) return;
+    const btnRect = el.getBoundingClientRect();
+    const asideRect = aside.getBoundingClientRect();
+    if (btnRect.height === 0 || asideRect.width === 0) return;
+    setModulePopupPos({
+      top: btnRect.top,
+      left: asideRect.right + MODULE_POPUP_RIGHT_OFFSET,
+    });
     setHoveredModule(moduleKey);
   }
   function scheduleCloseModulePopup() {
@@ -150,7 +163,12 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
     if (moduleHoverTimeout.current) { clearTimeout(moduleHoverTimeout.current); moduleHoverTimeout.current = null; }
   }
 
-  const navContent = (
+  // Rendered in both the desktop and the mobile sidebar. Only the desktop
+  // variant attaches refs and renders hover popups — the mobile sidebar is
+  // `display:none` at lg+ widths and sliding-in at sub-lg widths, so its DOM
+  // elements have unreliable bounding rects and hover-popups don't apply.
+  function buildNavContent(variant: "desktop" | "mobile") {
+    return (
     <>
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
         <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-widest text-white/30">Boekhouder</p>
@@ -196,7 +214,7 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
             inkoop: { hasItems: hasInkoopItems },
             boekingen: { hasItems: hasBoekingenItems },
           };
-          if (item.key in popupConfig) {
+          if (item.key in popupConfig && variant === "desktop") {
             const { hasItems } = popupConfig[item.key];
             return (
               <div key={item.key} className="relative"
@@ -298,20 +316,21 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
         </button>
       </div>
     </>
-  );
+    );
+  }
 
   const currentTitle = sectionTitles[activeSection] || "";
 
   return (
     <div className="flex min-h-screen">
       {/* Desktop sidebar */}
-      <aside className="hidden lg:flex w-[250px] bg-[#004854] flex-col fixed top-0 left-0 h-full z-40">
+      <aside ref={desktopAsideRef} className="hidden lg:flex w-[250px] bg-[#004854] flex-col fixed top-0 left-0 h-full z-40">
         <div className="px-5 py-5 border-b border-white/10">
           <Link href="/bookkeeper" className="block">
             <Image src="/logo.svg" alt="HAMZA Deboekhouder" width={150} height={39} className="brightness-0 invert" priority />
           </Link>
         </div>
-        {navContent}
+        {buildNavContent("desktop")}
       </aside>
 
       {/* Desktop top header bar */}
@@ -356,7 +375,7 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
-        {navContent}
+        {buildNavContent("mobile")}
       </aside>
 
       {/* Main content */}
