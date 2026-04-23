@@ -51,10 +51,10 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
   // would push the popup to (0, 0) in the top-left corner of the viewport.
   const moduleLinkRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const desktopAsideRef = useRef<HTMLElement | null>(null);
-  // 48 px gap between the sidebar's right edge and the popup's left edge.
+  // 8 px gap between the sidebar's right edge and the popup's left edge.
   // Measured from the sidebar edge — not from the popup's previous position
-  // and not from the icon — so the popup sits clearly outside the sidebar.
-  const MODULE_POPUP_RIGHT_OFFSET = 48;
+  // and not from the icon — so the popup sits just outside the sidebar.
+  const MODULE_POPUP_RIGHT_OFFSET = 8;
   const [openInvoices, setOpenInvoices] = useState<{ id: string; invoiceNumber: string; customerName: string; total: number; dueDate: string; status: string }[]>([]);
   const [openPurchases, setOpenPurchases] = useState<{ id: string; fileName: string; supplierName: string | null; amount: number | null; totalAmount: number | null; status: string }[]>([]);
   const [oldQuarterBookings, setOldQuarterBookings] = useState<{ id: string; invoiceNumber: string; customerName: string; total: number; date: string }[]>([]);
