@@ -49,6 +49,12 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
   // module the popup belongs to; `modulePopupPos` is derived from that module's
   // link rect so the popup's top aligns with the button top.
   const [hoveredModule, setHoveredModule] = useState<string | null>(null);
+  // Which badge is the accountant pointing at, so the popup can render only
+  // the category that matches the badge color (spec §12):
+  //   "toBook"  → blue badge, only newly incoming / te-boeken items
+  //   "overdue" → red badge, only verlopen debiteuren
+  //   null      → hovering the link/label, generic view
+  const [popupIntent, setPopupIntent] = useState<"toBook" | "overdue" | null>(null);
   const [modulePopupPos, setModulePopupPos] = useState<{ top: number; left: number } | null>(null);
   const moduleHoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   // IMPORTANT: these refs must only be attached from the DESKTOP sidebar. The
@@ -225,18 +231,20 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
                 <span className="flex items-center gap-1">
                   {sidebarCounts.toProcess > 0 && (
                     <span role="button" tabIndex={0}
+                      onMouseEnter={() => setPopupIntent("toBook")}
                       onClick={shortcutNav("/bookkeeper?section=verkoop&tab=boeken&filter=to_book")}
                       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") shortcutNav("/bookkeeper?section=verkoop&tab=boeken&filter=to_book")(e as unknown as React.MouseEvent); }}
-                      title="Open alle te boeken verkoopfacturen"
+                      title="Nieuwe / te boeken verkoopfacturen"
                       className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-blue-500 text-[10px] font-bold text-white leading-none px-1 hover:bg-blue-400 cursor-pointer">
                       {sidebarCounts.toProcess}
                     </span>
                   )}
                   {sidebarCounts.overdue > 0 && (
                     <span role="button" tabIndex={0}
+                      onMouseEnter={() => setPopupIntent("overdue")}
                       onClick={shortcutNav("/bookkeeper?section=verkoop&tab=debiteurenbeheer&filter=overdue")}
                       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") shortcutNav("/bookkeeper?section=verkoop&tab=debiteurenbeheer&filter=overdue")(e as unknown as React.MouseEvent); }}
-                      title="Open verlopen debiteurenoverzicht"
+                      title="Verlopen debiteurenfacturen"
                       className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white leading-none px-1 hover:bg-red-400 cursor-pointer">
                       {sidebarCounts.overdue}
                     </span>
@@ -270,31 +278,54 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
           };
           if (item.key in popupConfig && variant === "desktop") {
             const { hasItems } = popupConfig[item.key];
+            // Partition Verkoop's openInvoices into the two categories the
+            // popup can show (spec §12-§13). We split once per render instead
+            // of filtering inside JSX so the "Alle bekijken" counter matches
+            // what the accountant actually sees.
+            const now = new Date();
+            const verkoopOverdue = openInvoices.filter((i) => i.status === "overdue" || (i.status === "sent" && new Date(i.dueDate) < now));
+            const verkoopToBook = openInvoices.filter((i) => !(i.status === "overdue" || (i.status === "sent" && new Date(i.dueDate) < now)));
+            const verkoopList = item.key === "verkoop"
+              ? (popupIntent === "overdue" ? verkoopOverdue : popupIntent === "toBook" ? verkoopToBook : openInvoices)
+              : openInvoices;
+            const verkoopTitle = popupIntent === "overdue"
+              ? "Verlopen"
+              : popupIntent === "toBook"
+                ? "Nieuw / te boeken"
+                : "Openstaand";
+            const verkoopFooterHref = popupIntent === "overdue"
+              ? "/bookkeeper?section=verkoop&tab=debiteurenbeheer&filter=overdue"
+              : popupIntent === "toBook"
+                ? "/bookkeeper?section=verkoop&tab=boeken&filter=to_book"
+                : "/bookkeeper?section=verkoop";
             return (
               <div key={item.key} className="relative"
                 ref={(el) => { moduleLinkRefs.current[item.key] = el; }}
-                onMouseEnter={() => openModulePopup(item.key)}
-                onMouseLeave={scheduleCloseModulePopup}>
+                onMouseEnter={() => { setPopupIntent(null); openModulePopup(item.key); }}
+                onMouseLeave={() => { setPopupIntent(null); scheduleCloseModulePopup(); }}>
                 {linkEl}
                 {hoveredModule === item.key && hasItems && modulePopupPos && typeof window !== "undefined" && window.innerWidth >= 1024 && createPortal(
                   <div
                     className="fixed w-72 bg-white rounded-xl shadow-[4px_4px_20px_-2px_rgba(0,0,0,0.12)] border border-gray-200 z-[9999] py-2 max-h-[360px] overflow-y-auto"
                     style={{ top: modulePopupPos.top, left: modulePopupPos.left }}
                     onMouseEnter={cancelCloseModulePopup}
-                    onMouseLeave={scheduleCloseModulePopup}>
+                    onMouseLeave={() => { setPopupIntent(null); scheduleCloseModulePopup(); }}>
                     {item.key === "verkoop" && (
                       <>
-                        <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Openstaand ({openInvoices.length}{openInvoices.length >= 8 ? "+" : ""})</p>
-                        {openInvoices.map((inv) => {
+                        <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{verkoopTitle} ({verkoopList.length}{verkoopList.length >= 8 ? "+" : ""})</p>
+                        {verkoopList.length === 0 && (
+                          <p className="px-3 py-3 text-[11px] text-gray-400">Geen {popupIntent === "overdue" ? "verlopen" : popupIntent === "toBook" ? "nieuwe" : "openstaande"} facturen.</p>
+                        )}
+                        {verkoopList.map((inv) => {
                           const isOverdue = inv.status === "overdue" || (inv.status === "sent" && new Date(inv.dueDate) < new Date());
                           return (
                             <Link key={inv.id} href={`/bookkeeper/invoices/${inv.id}`}
-                              onClick={() => { setHoveredModule(null); setMobileMenuOpen(false); }}
+                              onClick={() => { setHoveredModule(null); setPopupIntent(null); setMobileMenuOpen(false); }}
                               className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 transition-colors">
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-1.5">
                                   <span className="text-xs font-medium text-gray-900">{inv.invoiceNumber}</span>
-                                  {isOverdue && <span className="px-1 py-0.5 rounded text-[8px] font-bold bg-red-100 text-red-600">VERLOPEN</span>}
+                                  {popupIntent !== "overdue" && isOverdue && <span className="px-1 py-0.5 rounded text-[8px] font-bold bg-red-100 text-red-600">VERLOPEN</span>}
                                 </div>
                                 <p className="text-[11px] text-gray-500 truncate">{inv.customerName}</p>
                               </div>
@@ -303,8 +334,10 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
                           );
                         })}
                         <div className="border-t border-gray-100 mt-1 pt-1 px-3">
-                          <Link href="/bookkeeper?section=verkoop" onClick={() => { setHoveredModule(null); setMobileMenuOpen(false); }}
-                            className="text-[11px] text-[#00AFCB] font-medium hover:text-[#004854]">Alle facturen bekijken &rarr;</Link>
+                          <Link href={verkoopFooterHref} onClick={() => { setHoveredModule(null); setPopupIntent(null); setMobileMenuOpen(false); }}
+                            className="text-[11px] text-[#00AFCB] font-medium hover:text-[#004854]">
+                            {popupIntent === "overdue" ? "Naar Debiteurenbeheer \u2192" : popupIntent === "toBook" ? "Naar Boeken \u2192" : "Alle facturen bekijken \u2192"}
+                          </Link>
                         </div>
                       </>
                     )}

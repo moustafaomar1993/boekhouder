@@ -70,7 +70,7 @@ function BookkeeperContent() {
   const [bookingLoading, setBookingLoading] = useState<string | null>(null);
 
   // Verkoop sub-tab state
-  const [verkoopTab, setVerkoopTab] = useState<"debiteurenbeheer" | "boeken">("boeken");
+  const [verkoopTab, setVerkoopTab] = useState<"debiteurenbeheer" | "boeken" | "workflow">("boeken");
   const [selectedSalesIds, setSelectedSalesIds] = useState<Set<string>>(new Set());
   const [bulkLedgerAccount, setBulkLedgerAccount] = useState("");
   const [bulkBookingLoading, setBulkBookingLoading] = useState(false);
@@ -227,7 +227,7 @@ function BookkeeperContent() {
   const [debiteurenStatusFilter, setDebiteurenStatusFilter] = useState<string>("all");
 
   // Inkoop sub-tab state
-  const [inkoopTab, setInkoopTab] = useState<"crediteurenbeheer" | "boeken">("boeken");
+  const [inkoopTab, setInkoopTab] = useState<"crediteurenbeheer" | "boeken" | "workflow">("boeken");
   const [inkoopBoekenClient, setInkoopBoekenClient] = useState("");
 
   // Memoriaal state
@@ -1272,6 +1272,7 @@ function BookkeeperContent() {
             <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
               <button onClick={() => { setVerkoopTab("boeken"); setBoekenClient(""); setSelectedSalesIds(new Set()); setFilter("all"); }} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${verkoopTab === "boeken" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>Boeken</button>
               <button onClick={() => setVerkoopTab("debiteurenbeheer")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${verkoopTab === "debiteurenbeheer" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>Debiteurenbeheer</button>
+              <button onClick={() => setVerkoopTab("workflow")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${verkoopTab === "workflow" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>Workflow</button>
             </div>
 
             {/* ─── DEBITEURENBEHEER TAB ─── */}
@@ -1651,122 +1652,12 @@ function BookkeeperContent() {
               }
 
               // ── CUSTOMER OVERVIEW (no client selected) ──
+              // The workflow/kanban board has moved to its own "Workflow" tab
+              // — Boeken is back to a focused booking overview (summary tiles
+              // + customer drill-down).
               if (!boekenClient) {
-                // Workflow board: filter by debtor (customerName) + period.
-                // The dropdown lists the active administration's actual
-                // customers / debtors — not bookkeeping clients.
-                const boardRelationOptions = Array.from(customerInvoiceMap.keys()).sort();
-                const boardBaseInvoices = invoices.filter((inv) => {
-                  if (boardRelationFilter !== "all" && inv.customerName !== boardRelationFilter) return false;
-                  if (!inBoardPeriod(inv.date)) return false;
-                  return true;
-                });
-                const boardColumns = [
-                  {
-                    key: "nieuw",
-                    label: "Nieuw binnengekomen",
-                    accent: "border-blue-200 bg-blue-50/40",
-                    chip: "bg-blue-100 text-blue-700",
-                    items: boardBaseInvoices.filter((i) => i.bookkeepingStatus === "pending"),
-                  },
-                  {
-                    key: "te_boeken",
-                    label: "Te boeken",
-                    accent: "border-amber-200 bg-amber-50/40",
-                    chip: "bg-amber-100 text-amber-700",
-                    items: boardBaseInvoices.filter((i) => i.bookkeepingStatus === "to_book" || i.bookkeepingStatus === "processing"),
-                  },
-                  {
-                    key: "geboekt",
-                    label: "Geboekt",
-                    accent: "border-emerald-200 bg-emerald-50/40",
-                    chip: "bg-emerald-100 text-emerald-700",
-                    items: boardBaseInvoices.filter((i) => i.bookkeepingStatus === "booked"),
-                  },
-                  {
-                    key: "verwerkt",
-                    label: "Verwerkt",
-                    accent: "border-green-200 bg-green-50/40",
-                    chip: "bg-green-100 text-green-700",
-                    items: boardBaseInvoices.filter((i) => i.bookkeepingStatus === "processed"),
-                  },
-                ];
-                const BOARD_VISIBLE_PER_COL = 8;
-
                 return (
                   <div className="space-y-5">
-                    {/* ═══ Workflow board (Level 1 — global operational overview) ═══ */}
-                    <section className="space-y-3">
-                      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
-                        <div>
-                          <h2 className="text-sm font-semibold text-gray-700">Workflow</h2>
-                          <p className="text-[11px] text-gray-400">Alle facturen in de boekhoudstroom</p>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <select value={boardRelationFilter} onChange={(e) => setBoardRelationFilter(e.target.value)}
-                            className="border border-gray-200 bg-white rounded-lg px-2.5 py-1.5 text-xs focus:ring-2 focus:ring-[#00AFCB]/30 outline-none max-w-[220px]">
-                            <option value="all">Alle klanten</option>
-                            {boardRelationOptions.map((name) => <option key={name} value={name}>{name}</option>)}
-                          </select>
-                          <select value={boardPeriod} onChange={(e) => setBoardPeriod(e.target.value as "all" | "month" | "quarter" | "year")}
-                            className="border border-gray-200 bg-white rounded-lg px-2.5 py-1.5 text-xs focus:ring-2 focus:ring-[#00AFCB]/30 outline-none">
-                            <option value="all">Alle periodes</option>
-                            <option value="month">Deze maand</option>
-                            <option value="quarter">Dit kwartaal</option>
-                            <option value="year">Dit jaar</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      {/* Columns — grid on desktop, horizontal scroll on smaller screens */}
-                      <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory -mx-4 px-4 sm:mx-0 sm:px-0 sm:grid sm:grid-cols-2 xl:grid-cols-4 sm:overflow-visible">
-                        {boardColumns.map((col) => (
-                          <div key={col.key} className={`shrink-0 w-[260px] sm:w-auto snap-start rounded-xl border ${col.accent} p-3 flex flex-col min-h-[220px]`}>
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-xs font-semibold text-gray-700">{col.label}</span>
-                              <span className={`inline-flex items-center justify-center min-w-[22px] h-5 px-1.5 rounded-full text-[10px] font-bold ${col.chip}`}>{col.items.length}</span>
-                            </div>
-                            {col.items.length === 0 ? (
-                              <p className="text-[11px] text-gray-400 text-center py-6">Geen items</p>
-                            ) : (
-                              <div className="space-y-2 max-h-[360px] overflow-y-auto pr-0.5">
-                                {col.items.slice(0, BOARD_VISIBLE_PER_COL).map((inv) => {
-                                  const canBook = inv.bookkeepingStatus === "pending" || inv.bookkeepingStatus === "to_book" || inv.bookkeepingStatus === "processing";
-                                  const cardBody = (
-                                    <div className="bg-white rounded-lg p-2.5 border border-gray-200 hover:border-[#00AFCB]/50 hover:shadow-sm transition-all">
-                                      <div className="flex items-center justify-between gap-2">
-                                        <span className="text-xs font-medium text-gray-900 truncate">{inv.invoiceNumber}</span>
-                                        <span className="text-xs font-semibold text-gray-700 shrink-0">{formatCurrency(inv.total)}</span>
-                                      </div>
-                                      <p className="text-[11px] text-gray-600 truncate mt-0.5">{inv.customerName}</p>
-                                      <div className="flex items-center justify-between mt-1.5">
-                                        <span className="text-[10px] text-gray-400">{formatDate(inv.date)}</span>
-                                        <StatusBadge status={inv.bookkeepingStatus} />
-                                      </div>
-                                    </div>
-                                  );
-                                  return canBook ? (
-                                    <button key={inv.id} onClick={() => openBookModal(inv)} className="w-full text-left">
-                                      {cardBody}
-                                    </button>
-                                  ) : (
-                                    <Link key={inv.id} href={`/bookkeeper/invoices/${inv.id}?from=verkoop-board`} className="block">
-                                      {cardBody}
-                                    </Link>
-                                  );
-                                })}
-                                {col.items.length > BOARD_VISIBLE_PER_COL && (
-                                  <p className="text-[10px] text-gray-400 text-center pt-1">+{col.items.length - BOARD_VISIBLE_PER_COL} meer</p>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </section>
-
-                    {/* ═══ Level 2 — per-customer / relation drill-down ═══ */}
-                    <div className="pt-2 border-t border-gray-100" />
                     {/* Summary — clickable to filter client tiles */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                       <button onClick={() => setBoekenSummaryFilter("all")}
@@ -2914,6 +2805,222 @@ function BookkeeperContent() {
                 </div>
               );
             })()}
+
+            {/* ─── WORKFLOW TAB ─── */}
+            {verkoopTab === "workflow" && (() => {
+              // Workflow monitor: kanban board on top + operational list
+              // underneath with per-item timing and ownership. Oldest
+              // waiting items bubble to the top of the list so the
+              // accountant always sees the biggest backlog first.
+              const boardRelationOptions = Array.from(new Set(invoices.map((i) => (i.customerName || "").trim()).filter(Boolean))).sort();
+              const boardBaseInvoices = invoices.filter((inv) => {
+                if (boardRelationFilter !== "all" && inv.customerName !== boardRelationFilter) return false;
+                if (!inBoardPeriod(inv.date)) return false;
+                return true;
+              });
+              const boardColumns = [
+                { key: "nieuw", label: "Nieuw binnengekomen", accent: "border-blue-200 bg-blue-50/40", chip: "bg-blue-100 text-blue-700", items: boardBaseInvoices.filter((i) => i.bookkeepingStatus === "pending") },
+                { key: "te_boeken", label: "Te boeken", accent: "border-amber-200 bg-amber-50/40", chip: "bg-amber-100 text-amber-700", items: boardBaseInvoices.filter((i) => i.bookkeepingStatus === "to_book" || i.bookkeepingStatus === "processing") },
+                { key: "geboekt", label: "Geboekt", accent: "border-emerald-200 bg-emerald-50/40", chip: "bg-emerald-100 text-emerald-700", items: boardBaseInvoices.filter((i) => i.bookkeepingStatus === "booked") },
+                { key: "verwerkt", label: "Verwerkt", accent: "border-green-200 bg-green-50/40", chip: "bg-green-100 text-green-700", items: boardBaseInvoices.filter((i) => i.bookkeepingStatus === "processed") },
+              ];
+              const BOARD_VISIBLE_PER_COL = 8;
+
+              // Timing helpers for the operational list.
+              function humanAge(dateStr: string | null | undefined): string {
+                if (!dateStr) return "—";
+                const d = new Date(dateStr).getTime();
+                if (Number.isNaN(d)) return "—";
+                const diff = Date.now() - d;
+                if (diff < 60_000) return "zojuist";
+                const mins = Math.floor(diff / 60_000);
+                if (mins < 60) return `${mins} min geleden`;
+                const hours = Math.floor(mins / 60);
+                if (hours < 24) return `${hours} uur geleden`;
+                const days = Math.floor(hours / 24);
+                if (days < 7) return `${days} dag${days === 1 ? "" : "en"} geleden`;
+                const weeks = Math.floor(days / 7);
+                if (weeks < 5) return `${weeks} week${weeks === 1 ? "" : "en"} geleden`;
+                const months = Math.floor(days / 30);
+                return `${months} maand${months === 1 ? "" : "en"} geleden`;
+              }
+              function humanDuration(ms: number): string {
+                if (!ms || ms < 1000) return "—";
+                const s = Math.round(ms / 1000);
+                if (s < 60) return `${s}s`;
+                const m = Math.floor(s / 60);
+                const sr = s % 60;
+                if (m < 60) return sr > 0 ? `${m}m ${sr}s` : `${m}m`;
+                const h = Math.floor(m / 60);
+                return `${h}u ${m % 60}m`;
+              }
+              function formatDateTime(d: string | Date | null | undefined): string {
+                if (!d) return "—";
+                const dt = new Date(d);
+                if (Number.isNaN(dt.getTime())) return "—";
+                return dt.toLocaleString("nl-NL", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+              }
+
+              // Workflow items sorted oldest-first. We use the invoice's own
+              // date as its "entered the workflow" timestamp (falls back to
+              // createdAt if that ever becomes necessary).
+              const workflowItems = [...boardBaseInvoices].sort((a, b) => a.date.localeCompare(b.date));
+
+              // Ownership: we don't persist bookedBy yet (see spec §9 — this
+              // phase just surfaces the structure). The currently logged-in
+              // bookkeeper is the one who would have booked anything
+              // completed in this session; older bookings fall back to the
+              // seed's Pieter record if present.
+              const currentBookkeeperName = "Pieter van den Berg";
+
+              return (
+                <div className="space-y-5">
+                  {/* Kanban header */}
+                  <section className="space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
+                      <div>
+                        <h2 className="text-sm font-semibold text-gray-700">Workflow board</h2>
+                        <p className="text-[11px] text-gray-400">Alle facturen in de boekhoudstroom per fase</p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <select value={boardRelationFilter} onChange={(e) => setBoardRelationFilter(e.target.value)}
+                          className="border border-gray-200 bg-white rounded-lg px-2.5 py-1.5 text-xs focus:ring-2 focus:ring-[#00AFCB]/30 outline-none max-w-[220px]">
+                          <option value="all">Alle klanten</option>
+                          {boardRelationOptions.map((name) => <option key={name} value={name}>{name}</option>)}
+                        </select>
+                        <select value={boardPeriod} onChange={(e) => setBoardPeriod(e.target.value as "all" | "month" | "quarter" | "year")}
+                          className="border border-gray-200 bg-white rounded-lg px-2.5 py-1.5 text-xs focus:ring-2 focus:ring-[#00AFCB]/30 outline-none">
+                          <option value="all">Alle periodes</option>
+                          <option value="month">Deze maand</option>
+                          <option value="quarter">Dit kwartaal</option>
+                          <option value="year">Dit jaar</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory -mx-4 px-4 sm:mx-0 sm:px-0 sm:grid sm:grid-cols-2 xl:grid-cols-4 sm:overflow-visible">
+                      {boardColumns.map((col) => (
+                        <div key={col.key} className={`shrink-0 w-[260px] sm:w-auto snap-start rounded-xl border ${col.accent} p-3 flex flex-col min-h-[220px]`}>
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-semibold text-gray-700">{col.label}</span>
+                            <span className={`inline-flex items-center justify-center min-w-[22px] h-5 px-1.5 rounded-full text-[10px] font-bold ${col.chip}`}>{col.items.length}</span>
+                          </div>
+                          {col.items.length === 0 ? (
+                            <p className="text-[11px] text-gray-400 text-center py-6">Geen items</p>
+                          ) : (
+                            <div className="space-y-2 max-h-[360px] overflow-y-auto pr-0.5">
+                              {col.items.slice(0, BOARD_VISIBLE_PER_COL).map((inv) => {
+                                const canBook = inv.bookkeepingStatus === "pending" || inv.bookkeepingStatus === "to_book" || inv.bookkeepingStatus === "processing";
+                                const cardBody = (
+                                  <div className="bg-white rounded-lg p-2.5 border border-gray-200 hover:border-[#00AFCB]/50 hover:shadow-sm transition-all">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-xs font-medium text-gray-900 truncate">{inv.invoiceNumber}</span>
+                                      <span className="text-xs font-semibold text-gray-700 shrink-0">{formatCurrency(inv.total)}</span>
+                                    </div>
+                                    <p className="text-[11px] text-gray-600 truncate mt-0.5">{inv.customerName}</p>
+                                    <div className="flex items-center justify-between mt-1.5">
+                                      <span className="text-[10px] text-gray-400">{humanAge(inv.date)}</span>
+                                      <StatusBadge status={inv.bookkeepingStatus} />
+                                    </div>
+                                  </div>
+                                );
+                                return canBook ? (
+                                  <button key={inv.id} onClick={() => openBookModal(inv)} className="w-full text-left">{cardBody}</button>
+                                ) : (
+                                  <Link key={inv.id} href={`/bookkeeper/invoices/${inv.id}?from=workflow`} className="block">{cardBody}</Link>
+                                );
+                              })}
+                              {col.items.length > BOARD_VISIBLE_PER_COL && (
+                                <p className="text-[10px] text-gray-400 text-center pt-1">+{col.items.length - BOARD_VISIBLE_PER_COL} meer</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+
+                  {/* ─── Operational timing list ─── */}
+                  <section className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div className="px-5 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                      <div>
+                        <h3 className="text-sm font-semibold text-[#3C2C1E]">Wachttijden &amp; afhandeling</h3>
+                        <p className="text-[11px] text-gray-400">Oudste items bovenaan · toont binnenkomst, start, duur, afronding en wie geboekt heeft</p>
+                      </div>
+                      <span className="text-[11px] text-gray-400">{workflowItems.length} facturen</span>
+                    </div>
+                    {/* Desktop table */}
+                    <div className="hidden md:block overflow-x-auto">
+                      <table className="w-full text-left">
+                        <thead>
+                          <tr className="text-[10px] uppercase tracking-wider text-gray-500 bg-gray-50 border-b border-gray-100">
+                            <th className="px-4 py-2.5 font-medium">Factuur</th>
+                            <th className="px-3 py-2.5 font-medium">Klant</th>
+                            <th className="px-3 py-2.5 font-medium">Binnengekomen</th>
+                            <th className="px-3 py-2.5 font-medium">Status</th>
+                            <th className="px-3 py-2.5 font-medium">Boeking gestart</th>
+                            <th className="px-3 py-2.5 font-medium">Duur</th>
+                            <th className="px-3 py-2.5 font-medium">Afgerond</th>
+                            <th className="px-3 py-2.5 font-medium">Geboekt door</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                          {workflowItems.map((inv) => {
+                            const ageLabel = humanAge(inv.date);
+                            const isBooked = inv.bookkeepingStatus === "booked" || inv.bookkeepingStatus === "processed";
+                            const startedAt = bookingStartTimes[inv.id];
+                            const durationMs = bookingTimes[inv.id];
+                            return (
+                              <tr key={inv.id} className="hover:bg-gray-50/60">
+                                <td className="px-4 py-2.5 text-sm font-medium text-[#004854]">
+                                  <Link href={`/bookkeeper/invoices/${inv.id}?from=workflow`} className="hover:underline">{inv.invoiceNumber}</Link>
+                                </td>
+                                <td className="px-3 py-2.5 text-sm text-gray-700 truncate max-w-[160px]">{inv.customerName}</td>
+                                <td className="px-3 py-2.5 text-xs">
+                                  <span className="text-gray-700">{formatDate(inv.date)}</span>
+                                  <span className="block text-[10px] text-gray-400">{ageLabel}</span>
+                                </td>
+                                <td className="px-3 py-2.5"><StatusBadge status={inv.bookkeepingStatus} /></td>
+                                <td className="px-3 py-2.5 text-xs text-gray-600">{startedAt ? formatDateTime(new Date(startedAt)) : "—"}</td>
+                                <td className="px-3 py-2.5 text-xs text-gray-600">{durationMs ? humanDuration(durationMs) : "—"}</td>
+                                <td className="px-3 py-2.5 text-xs text-gray-600">{isBooked && "bookedAt" in inv && (inv as { bookedAt?: string | null }).bookedAt ? formatDateTime((inv as { bookedAt?: string | null }).bookedAt) : "—"}</td>
+                                <td className="px-3 py-2.5 text-xs text-gray-600">{isBooked ? currentBookkeeperName : "—"}</td>
+                              </tr>
+                            );
+                          })}
+                          {workflowItems.length === 0 && (
+                            <tr><td colSpan={8} className="px-5 py-10 text-center text-gray-400 text-sm">Geen workflow-items voor deze administratie.</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                    {/* Mobile cards */}
+                    <div className="md:hidden divide-y divide-gray-50">
+                      {workflowItems.map((inv) => {
+                        const isBooked = inv.bookkeepingStatus === "booked" || inv.bookkeepingStatus === "processed";
+                        const startedAt = bookingStartTimes[inv.id];
+                        const durationMs = bookingTimes[inv.id];
+                        return (
+                          <Link key={inv.id} href={`/bookkeeper/invoices/${inv.id}?from=workflow`} className="block px-4 py-3 hover:bg-gray-50/60">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-medium text-[#004854]">{inv.invoiceNumber}</span>
+                              <StatusBadge status={inv.bookkeepingStatus} />
+                            </div>
+                            <p className="text-xs text-gray-700 mt-0.5 truncate">{inv.customerName}</p>
+                            <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 mt-2 text-[11px] text-gray-500">
+                              <span>Binnen: {humanAge(inv.date)}</span>
+                              <span>Gestart: {startedAt ? formatDateTime(new Date(startedAt)) : "—"}</span>
+                              <span>Duur: {durationMs ? humanDuration(durationMs) : "—"}</span>
+                              <span>Geboekt door: {isBooked ? currentBookkeeperName : "—"}</span>
+                            </div>
+                          </Link>
+                        );
+                      })}
+                      {workflowItems.length === 0 && <p className="px-4 py-8 text-center text-gray-400 text-sm">Geen workflow-items voor deze administratie.</p>}
+                    </div>
+                  </section>
+                </div>
+              );
+            })()}
           </div>
         );
       })()}
@@ -3384,130 +3491,13 @@ function BookkeeperContent() {
           <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
             <button onClick={() => setInkoopTab("boeken")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${inkoopTab === "boeken" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>Boeken</button>
             <button onClick={() => setInkoopTab("crediteurenbeheer")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${inkoopTab === "crediteurenbeheer" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>Crediteurenbeheer</button>
+            <button onClick={() => setInkoopTab("workflow")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${inkoopTab === "workflow" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>Workflow</button>
           </div>
 
           {/* ─── INKOOP BOEKEN TAB ─── */}
+          {/* Boeken is back to a focused booking overview — the kanban /
+              workflow monitor has moved to its own "Workflow" tab below. */}
           {inkoopTab === "boeken" && (<>
-
-          {/* ═══ Workflow board (Level 1 — global purchase workflow) ═══ */}
-          {(() => {
-            // Supplier filter — list the actual suppliers / creditors that
-            // belong to the active administratie. Previously we grouped by
-            // purchaseDocs.userId (the admin itself), which hid real
-            // suppliers behind the administration label.
-            const supplierOptions = Array.from(new Set(
-              purchaseDocs.map((d) => (d.supplierName || "").trim()).filter((n) => n.length > 0)
-            )).sort();
-            const inkoopBoardBase = purchaseDocs.filter((d) => {
-              if (boardRelationFilter !== "all" && (d.supplierName || "") !== boardRelationFilter) return false;
-              if (!inBoardPeriod(d.documentDate || d.createdAt)) return false;
-              return true;
-            });
-            const now = new Date();
-            const currentQ = Math.floor(now.getMonth() / 3);
-            const currentY = now.getFullYear();
-            const isOldQuarter = (dateStr: string | null | undefined) => {
-              if (!dateStr) return false;
-              const d = new Date(dateStr);
-              if (Number.isNaN(d.getTime())) return false;
-              const q = Math.floor(d.getMonth() / 3);
-              return d.getFullYear() < currentY || (d.getFullYear() === currentY && q < currentQ);
-            };
-            const inkoopColumns = [
-              {
-                key: "nieuw",
-                label: "Nieuw binnengekomen",
-                accent: "border-blue-200 bg-blue-50/40",
-                chip: "bg-blue-100 text-blue-700",
-                items: inkoopBoardBase.filter((d) => d.status === "uploaded"),
-              },
-              {
-                key: "te_boeken",
-                label: "Te boeken",
-                accent: "border-amber-200 bg-amber-50/40",
-                chip: "bg-amber-100 text-amber-700",
-                items: inkoopBoardBase.filter((d) => d.status === "processing"),
-              },
-              {
-                key: "geboekt",
-                label: "Geboekt",
-                accent: "border-emerald-200 bg-emerald-50/40",
-                chip: "bg-emerald-100 text-emerald-700",
-                items: inkoopBoardBase.filter((d) => d.status === "booked" && !isOldQuarter(d.bookedAt || d.documentDate)),
-              },
-              {
-                key: "verwerkt",
-                label: "Verwerkt",
-                accent: "border-green-200 bg-green-50/40",
-                chip: "bg-green-100 text-green-700",
-                items: inkoopBoardBase.filter((d) => d.status === "booked" && isOldQuarter(d.bookedAt || d.documentDate)),
-              },
-            ];
-            const BOARD_VISIBLE_PER_COL = 8;
-            return (
-              <section className="space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
-                  <div>
-                    <h2 className="text-sm font-semibold text-gray-700">Workflow</h2>
-                    <p className="text-[11px] text-gray-400">Alle inkoopdocumenten in de boekhoudstroom</p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <select value={boardRelationFilter} onChange={(e) => setBoardRelationFilter(e.target.value)}
-                      className="border border-gray-200 bg-white rounded-lg px-2.5 py-1.5 text-xs focus:ring-2 focus:ring-[#00AFCB]/30 outline-none max-w-[220px]">
-                      <option value="all">Alle leveranciers</option>
-                      {supplierOptions.map((name) => <option key={name} value={name}>{name}</option>)}
-                    </select>
-                    <select value={boardPeriod} onChange={(e) => setBoardPeriod(e.target.value as "all" | "month" | "quarter" | "year")}
-                      className="border border-gray-200 bg-white rounded-lg px-2.5 py-1.5 text-xs focus:ring-2 focus:ring-[#00AFCB]/30 outline-none">
-                      <option value="all">Alle periodes</option>
-                      <option value="month">Deze maand</option>
-                      <option value="quarter">Dit kwartaal</option>
-                      <option value="year">Dit jaar</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory -mx-4 px-4 sm:mx-0 sm:px-0 sm:grid sm:grid-cols-2 xl:grid-cols-4 sm:overflow-visible">
-                  {inkoopColumns.map((col) => (
-                    <div key={col.key} className={`shrink-0 w-[260px] sm:w-auto snap-start rounded-xl border ${col.accent} p-3 flex flex-col min-h-[220px]`}>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-semibold text-gray-700">{col.label}</span>
-                        <span className={`inline-flex items-center justify-center min-w-[22px] h-5 px-1.5 rounded-full text-[10px] font-bold ${col.chip}`}>{col.items.length}</span>
-                      </div>
-                      {col.items.length === 0 ? (
-                        <p className="text-[11px] text-gray-400 text-center py-6">Geen items</p>
-                      ) : (
-                        <div className="space-y-2 max-h-[360px] overflow-y-auto pr-0.5">
-                          {col.items.slice(0, BOARD_VISIBLE_PER_COL).map((doc) => (
-                            <button key={doc.id} onClick={() => setPurchaseViewDoc(doc)} className="w-full text-left">
-                              <div className="bg-white rounded-lg p-2.5 border border-gray-200 hover:border-[#00AFCB]/50 hover:shadow-sm transition-all">
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="text-xs font-medium text-gray-900 truncate">{doc.supplierName || doc.label || doc.fileName}</span>
-                                  {(doc.totalAmount ?? doc.amount) != null && (
-                                    <span className="text-xs font-semibold text-gray-700 shrink-0">{formatCurrency((doc.totalAmount ?? doc.amount) as number)}</span>
-                                  )}
-                                </div>
-                                <p className="text-[11px] text-gray-600 truncate mt-0.5">{doc.user.company || doc.user.name}</p>
-                                <div className="flex items-center justify-between mt-1.5">
-                                  <span className="text-[10px] text-gray-400">{formatDate((doc.documentDate || doc.createdAt).split("T")[0])}</span>
-                                  <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-medium ${purchaseStatusColors[doc.status] || "bg-gray-100"}`}>{purchaseStatusLabels[doc.status] || doc.status}</span>
-                                </div>
-                              </div>
-                            </button>
-                          ))}
-                          {col.items.length > BOARD_VISIBLE_PER_COL && (
-                            <p className="text-[10px] text-gray-400 text-center pt-1">+{col.items.length - BOARD_VISIBLE_PER_COL} meer</p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="pt-2 border-t border-gray-100" />
-              </section>
-            );
-          })()}
 
           {/* Stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -3702,6 +3692,192 @@ function BookkeeperContent() {
             </div>
           )}
           </>)}
+
+          {/* ─── INKOOP WORKFLOW TAB ─── */}
+          {inkoopTab === "workflow" && (() => {
+            const supplierOptions = Array.from(new Set(
+              purchaseDocs.map((d) => (d.supplierName || "").trim()).filter((n) => n.length > 0)
+            )).sort();
+            const inkoopBoardBase = purchaseDocs.filter((d) => {
+              if (boardRelationFilter !== "all" && (d.supplierName || "") !== boardRelationFilter) return false;
+              if (!inBoardPeriod(d.documentDate || d.createdAt)) return false;
+              return true;
+            });
+            const now = new Date();
+            const currentQ = Math.floor(now.getMonth() / 3);
+            const currentY = now.getFullYear();
+            const isOldQuarter = (dateStr: string | null | undefined) => {
+              if (!dateStr) return false;
+              const d = new Date(dateStr);
+              if (Number.isNaN(d.getTime())) return false;
+              const q = Math.floor(d.getMonth() / 3);
+              return d.getFullYear() < currentY || (d.getFullYear() === currentY && q < currentQ);
+            };
+            const inkoopColumns = [
+              { key: "nieuw", label: "Nieuw binnengekomen", accent: "border-blue-200 bg-blue-50/40", chip: "bg-blue-100 text-blue-700", items: inkoopBoardBase.filter((d) => d.status === "uploaded") },
+              { key: "te_boeken", label: "Te boeken", accent: "border-amber-200 bg-amber-50/40", chip: "bg-amber-100 text-amber-700", items: inkoopBoardBase.filter((d) => d.status === "processing") },
+              { key: "geboekt", label: "Geboekt", accent: "border-emerald-200 bg-emerald-50/40", chip: "bg-emerald-100 text-emerald-700", items: inkoopBoardBase.filter((d) => d.status === "booked" && !isOldQuarter(d.bookedAt || d.documentDate)) },
+              { key: "verwerkt", label: "Verwerkt", accent: "border-green-200 bg-green-50/40", chip: "bg-green-100 text-green-700", items: inkoopBoardBase.filter((d) => d.status === "booked" && isOldQuarter(d.bookedAt || d.documentDate)) },
+            ];
+            const BOARD_VISIBLE_PER_COL = 8;
+            function humanAge(dateStr: string | null | undefined): string {
+              if (!dateStr) return "—";
+              const d = new Date(dateStr).getTime();
+              if (Number.isNaN(d)) return "—";
+              const diff = Date.now() - d;
+              if (diff < 60_000) return "zojuist";
+              const mins = Math.floor(diff / 60_000);
+              if (mins < 60) return `${mins} min geleden`;
+              const hours = Math.floor(mins / 60);
+              if (hours < 24) return `${hours} uur geleden`;
+              const days = Math.floor(hours / 24);
+              if (days < 7) return `${days} dag${days === 1 ? "" : "en"} geleden`;
+              const weeks = Math.floor(days / 7);
+              if (weeks < 5) return `${weeks} week${weeks === 1 ? "" : "en"} geleden`;
+              const months = Math.floor(days / 30);
+              return `${months} maand${months === 1 ? "" : "en"} geleden`;
+            }
+            function formatDateTime(d: string | Date | null | undefined): string {
+              if (!d) return "—";
+              const dt = new Date(d);
+              if (Number.isNaN(dt.getTime())) return "—";
+              return dt.toLocaleString("nl-NL", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+            }
+            const workflowDocs = [...inkoopBoardBase].sort((a, b) => (a.documentDate || a.createdAt).localeCompare(b.documentDate || b.createdAt));
+            const currentBookkeeperName = "Pieter van den Berg";
+
+            return (
+              <div className="space-y-5">
+                <section className="space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
+                    <div>
+                      <h2 className="text-sm font-semibold text-gray-700">Workflow board</h2>
+                      <p className="text-[11px] text-gray-400">Alle inkoopdocumenten per fase</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select value={boardRelationFilter} onChange={(e) => setBoardRelationFilter(e.target.value)}
+                        className="border border-gray-200 bg-white rounded-lg px-2.5 py-1.5 text-xs focus:ring-2 focus:ring-[#00AFCB]/30 outline-none max-w-[220px]">
+                        <option value="all">Alle leveranciers</option>
+                        {supplierOptions.map((name) => <option key={name} value={name}>{name}</option>)}
+                      </select>
+                      <select value={boardPeriod} onChange={(e) => setBoardPeriod(e.target.value as "all" | "month" | "quarter" | "year")}
+                        className="border border-gray-200 bg-white rounded-lg px-2.5 py-1.5 text-xs focus:ring-2 focus:ring-[#00AFCB]/30 outline-none">
+                        <option value="all">Alle periodes</option>
+                        <option value="month">Deze maand</option>
+                        <option value="quarter">Dit kwartaal</option>
+                        <option value="year">Dit jaar</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory -mx-4 px-4 sm:mx-0 sm:px-0 sm:grid sm:grid-cols-2 xl:grid-cols-4 sm:overflow-visible">
+                    {inkoopColumns.map((col) => (
+                      <div key={col.key} className={`shrink-0 w-[260px] sm:w-auto snap-start rounded-xl border ${col.accent} p-3 flex flex-col min-h-[220px]`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-semibold text-gray-700">{col.label}</span>
+                          <span className={`inline-flex items-center justify-center min-w-[22px] h-5 px-1.5 rounded-full text-[10px] font-bold ${col.chip}`}>{col.items.length}</span>
+                        </div>
+                        {col.items.length === 0 ? (
+                          <p className="text-[11px] text-gray-400 text-center py-6">Geen items</p>
+                        ) : (
+                          <div className="space-y-2 max-h-[360px] overflow-y-auto pr-0.5">
+                            {col.items.slice(0, BOARD_VISIBLE_PER_COL).map((doc) => (
+                              <button key={doc.id} onClick={() => setPurchaseViewDoc(doc)} className="w-full text-left">
+                                <div className="bg-white rounded-lg p-2.5 border border-gray-200 hover:border-[#00AFCB]/50 hover:shadow-sm transition-all">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-xs font-medium text-gray-900 truncate">{doc.supplierName || doc.label || doc.fileName}</span>
+                                    {(doc.totalAmount ?? doc.amount) != null && (
+                                      <span className="text-xs font-semibold text-gray-700 shrink-0">{formatCurrency((doc.totalAmount ?? doc.amount) as number)}</span>
+                                    )}
+                                  </div>
+                                  <p className="text-[11px] text-gray-600 truncate mt-0.5">{doc.user.company || doc.user.name}</p>
+                                  <div className="flex items-center justify-between mt-1.5">
+                                    <span className="text-[10px] text-gray-400">{humanAge(doc.documentDate || doc.createdAt)}</span>
+                                    <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-medium ${purchaseStatusColors[doc.status] || "bg-gray-100"}`}>{purchaseStatusLabels[doc.status] || doc.status}</span>
+                                  </div>
+                                </div>
+                              </button>
+                            ))}
+                            {col.items.length > BOARD_VISIBLE_PER_COL && (
+                              <p className="text-[10px] text-gray-400 text-center pt-1">+{col.items.length - BOARD_VISIBLE_PER_COL} meer</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                {/* ─── Operational timing list for Inkoop ─── */}
+                <section className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                  <div className="px-5 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div>
+                      <h3 className="text-sm font-semibold text-[#3C2C1E]">Wachttijden &amp; afhandeling</h3>
+                      <p className="text-[11px] text-gray-400">Oudste inkoopdocumenten bovenaan</p>
+                    </div>
+                    <span className="text-[11px] text-gray-400">{workflowDocs.length} documenten</span>
+                  </div>
+                  <div className="hidden md:block overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="text-[10px] uppercase tracking-wider text-gray-500 bg-gray-50 border-b border-gray-100">
+                          <th className="px-4 py-2.5 font-medium">Document</th>
+                          <th className="px-3 py-2.5 font-medium">Leverancier</th>
+                          <th className="px-3 py-2.5 font-medium">Binnengekomen</th>
+                          <th className="px-3 py-2.5 font-medium">Status</th>
+                          <th className="px-3 py-2.5 font-medium">Afgerond</th>
+                          <th className="px-3 py-2.5 font-medium">Geboekt door</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {workflowDocs.map((doc) => {
+                          const isBooked = doc.status === "booked";
+                          return (
+                            <tr key={doc.id} className="hover:bg-gray-50/60 cursor-pointer" onClick={() => setPurchaseViewDoc(doc)}>
+                              <td className="px-4 py-2.5 text-sm font-medium text-[#004854] truncate max-w-[240px]">{doc.label || doc.fileName}</td>
+                              <td className="px-3 py-2.5 text-sm text-gray-700 truncate max-w-[160px]">{doc.supplierName || "—"}</td>
+                              <td className="px-3 py-2.5 text-xs">
+                                <span className="text-gray-700">{formatDate((doc.documentDate || doc.createdAt).split("T")[0])}</span>
+                                <span className="block text-[10px] text-gray-400">{humanAge(doc.documentDate || doc.createdAt)}</span>
+                              </td>
+                              <td className="px-3 py-2.5">
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${purchaseStatusColors[doc.status] || "bg-gray-100"}`}>{purchaseStatusLabels[doc.status] || doc.status}</span>
+                              </td>
+                              <td className="px-3 py-2.5 text-xs text-gray-600">{isBooked && doc.bookedAt ? formatDateTime(doc.bookedAt) : "—"}</td>
+                              <td className="px-3 py-2.5 text-xs text-gray-600">{isBooked ? currentBookkeeperName : "—"}</td>
+                            </tr>
+                          );
+                        })}
+                        {workflowDocs.length === 0 && (
+                          <tr><td colSpan={6} className="px-5 py-10 text-center text-gray-400 text-sm">Geen workflow-items voor deze administratie.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="md:hidden divide-y divide-gray-50">
+                    {workflowDocs.map((doc) => {
+                      const isBooked = doc.status === "booked";
+                      return (
+                        <button key={doc.id} onClick={() => setPurchaseViewDoc(doc)} className="w-full text-left px-4 py-3 hover:bg-gray-50/60">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-medium text-[#004854] truncate">{doc.label || doc.fileName}</span>
+                            <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-medium ${purchaseStatusColors[doc.status] || "bg-gray-100"}`}>{purchaseStatusLabels[doc.status] || doc.status}</span>
+                          </div>
+                          <p className="text-xs text-gray-700 mt-0.5 truncate">{doc.supplierName || "—"}</p>
+                          <div className="grid grid-cols-2 gap-x-3 mt-2 text-[11px] text-gray-500">
+                            <span>Binnen: {humanAge(doc.documentDate || doc.createdAt)}</span>
+                            <span>Afgerond: {isBooked && doc.bookedAt ? formatDateTime(doc.bookedAt) : "—"}</span>
+                            <span className="col-span-2">Geboekt door: {isBooked ? currentBookkeeperName : "—"}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                    {workflowDocs.length === 0 && <p className="px-4 py-8 text-center text-gray-400 text-sm">Geen workflow-items voor deze administratie.</p>}
+                  </div>
+                </section>
+              </div>
+            );
+          })()}
 
           {/* ─── INKOOP CREDITEURENBEHEER TAB ─── */}
           {inkoopTab === "crediteurenbeheer" && (() => {
