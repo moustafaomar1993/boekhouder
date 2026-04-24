@@ -79,7 +79,7 @@ export function TopDock({ items, activeKey, iconSize = 40 }: TopDockProps) {
     <div
       onMouseMove={(e) => setMouseX(e.clientX)}
       onMouseLeave={() => { setMouseX(null); setHoveredKey(null); }}
-      className="flex items-end gap-1.5 px-2.5 py-1.5 rounded-2xl bg-black/25 backdrop-blur-md border border-white/[0.07] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06),0_10px_30px_-10px_rgba(0,0,0,0.5)]"
+      className="flex items-end gap-[9px] px-3 py-2 rounded-[18px] bg-gradient-to-b from-white/[0.06] to-white/[0.02] backdrop-blur-xl border border-white/10 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08),inset_0_-1px_0_0_rgba(0,0,0,0.2),0_12px_40px_-14px_rgba(0,0,0,0.6)]"
     >
       {items.map((item) => {
         const scale = computeScale(item.key);
@@ -102,23 +102,21 @@ export function TopDock({ items, activeKey, iconSize = 40 }: TopDockProps) {
               willChange: "transform",
             }}
           >
-            {/* Tooltip above the hovered icon. Rendered inside the wrapper so
-                it scales with its parent — the label follows the magnified
-                icon smoothly. pointer-events-none prevents flicker when the
-                cursor drifts upward. */}
+            {/* Tooltip above the hovered icon. pointer-events-none prevents
+                flicker when the cursor drifts upward. */}
             <span
-              className={`absolute left-1/2 -translate-x-1/2 bottom-[calc(100%+6px)] px-2 py-[3px] text-white text-[11px] font-medium rounded-md whitespace-nowrap pointer-events-none shadow-lg transition-opacity duration-150 ${
-                isHovered ? "opacity-100" : "opacity-0"
+              className={`absolute left-1/2 -translate-x-1/2 bottom-[calc(100%+10px)] px-2.5 py-1 text-white text-[11px] font-medium rounded-lg whitespace-nowrap pointer-events-none shadow-[0_8px_24px_-6px_rgba(0,0,0,0.6)] transition-all duration-150 ${
+                isHovered ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"
               }`}
-              style={{ background: "rgba(12, 16, 20, 0.92)", backdropFilter: "blur(6px)" }}
+              style={{ background: "rgba(10, 14, 18, 0.94)", backdropFilter: "blur(10px)", border: "1px solid rgba(255,255,255,0.08)" }}
             >
               {item.label}
               <span
                 className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0"
                 style={{
-                  borderLeft: "4px solid transparent",
-                  borderRight: "4px solid transparent",
-                  borderTop: "4px solid rgba(12, 16, 20, 0.92)",
+                  borderLeft: "5px solid transparent",
+                  borderRight: "5px solid transparent",
+                  borderTop: "5px solid rgba(10, 14, 18, 0.94)",
                 }}
               />
             </span>
@@ -129,26 +127,33 @@ export function TopDock({ items, activeKey, iconSize = 40 }: TopDockProps) {
               onMouseEnter={() => setHoveredKey(item.key)}
               onMouseLeave={() => setHoveredKey(null)}
               aria-label={item.label}
-              className={`group relative flex items-center justify-center rounded-xl bg-gradient-to-br ${item.gradient} shadow-[0_3px_10px_rgba(0,0,0,0.28)] text-white transition-[box-shadow,filter] duration-200 ${
-                isActive ? "ring-2 ring-white/45" : "ring-0"
-              } hover:brightness-110`}
+              className={`group relative flex items-center justify-center rounded-[13px] bg-gradient-to-br ${item.gradient} text-white transition-[box-shadow,filter] duration-200 ${
+                isActive
+                  ? "shadow-[0_6px_20px_-4px_rgba(0,175,203,0.55),0_2px_6px_rgba(0,0,0,0.3)] ring-1 ring-white/30"
+                  : "shadow-[0_3px_10px_rgba(0,0,0,0.3)] ring-1 ring-black/10 hover:brightness-110"
+              }`}
               style={{ width: sizePx, height: sizePx }}
             >
               <span
-                className="flex items-center justify-center [&>svg]:w-[18px] [&>svg]:h-[18px]"
-                style={{ transform: isHovered ? "translateY(-1px)" : "translateY(0)", transition: "transform 200ms ease-out" }}
+                className="flex items-center justify-center [&>svg]:w-[19px] [&>svg]:h-[19px] drop-shadow-[0_1px_1px_rgba(0,0,0,0.3)]"
+                style={{ transform: isHovered ? "translateY(-1px)" : "translateY(0)", transition: "transform 220ms cubic-bezier(0.22, 1, 0.36, 1)" }}
               >
                 {item.icon}
               </span>
-              {/* Subtle top-gloss to give the tile an "app icon" feel */}
-              <span className="pointer-events-none absolute inset-0 rounded-xl bg-gradient-to-b from-white/18 to-transparent opacity-70" />
+              {/* Soft top gloss — gives each tile an "app icon" feel */}
+              <span className="pointer-events-none absolute inset-x-0 top-0 h-1/2 rounded-t-[13px] bg-gradient-to-b from-white/25 to-transparent" />
+              {/* Subtle bottom shadow band — adds dimension */}
+              <span className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 rounded-b-[13px] bg-gradient-to-t from-black/15 to-transparent" />
             </Link>
 
-            {/* Active-module indicator — small rounded pill under the icon,
-                like macOS's "running app" dot but a bit more refined. */}
+            {/* Active-module indicator — brand-cyan glowing pill below the
+                icon. Clearly marks "this is the module you're in" without
+                competing with the icon colour. */}
             <span
-              className={`absolute left-1/2 -translate-x-1/2 -bottom-[7px] h-[3px] rounded-full bg-white transition-[width,opacity] duration-200 ${
-                isActive ? "w-3 opacity-90 shadow-[0_0_6px_rgba(255,255,255,0.65)]" : "w-0 opacity-0"
+              className={`absolute left-1/2 -translate-x-1/2 -bottom-[9px] h-[3px] rounded-full transition-[width,opacity,background-color,box-shadow] duration-250 ${
+                isActive
+                  ? "w-5 opacity-100 bg-[#00AFCB] shadow-[0_0_10px_rgba(0,175,203,0.8)]"
+                  : "w-0 opacity-0"
               }`}
             />
 

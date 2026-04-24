@@ -476,7 +476,7 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
       {/* Desktop top navigation — a single premium nav bar containing the
           logo, active-administration switcher, the module dock and the
           global notification bell. Replaces the old left sidebar. */}
-      <header className="hidden lg:flex fixed top-0 left-0 right-0 z-40 h-[84px] bg-gradient-to-b from-[#003942] to-[#004854] border-b border-black/20 shadow-[0_6px_24px_-10px_rgba(0,0,0,0.45)] items-center gap-4 px-5 pt-[env(safe-area-inset-top)]">
+      <header className="hidden lg:flex fixed top-0 left-0 right-0 z-40 h-[84px] bg-gradient-to-b from-[#002830] via-[#003942] to-[#004854] border-b border-white/[0.03] shadow-[0_8px_28px_-12px_rgba(0,0,0,0.55)] items-center gap-4 px-5 pt-[env(safe-area-inset-top)] before:pointer-events-none before:absolute before:inset-x-0 before:bottom-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent">
         {/* LEFT — logo + admin switcher */}
         <div className="flex items-center gap-3 shrink-0 min-w-0">
           <Link href="/bookkeeper" className="shrink-0">
@@ -485,15 +485,15 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
           <div className="relative" ref={adminMenuRef}>
             {activeAdministration ? (
               <button onClick={() => setAdminMenuOpen((v) => !v)}
-                className="flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors max-w-[240px]">
-                <span className="w-7 h-7 rounded-lg bg-[#00AFCB] text-white text-xs font-bold flex items-center justify-center shrink-0">
+                className="flex items-center gap-2.5 pl-1.5 pr-3 py-1 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 hover:border-white/20 transition-all max-w-[240px] group">
+                <span className="w-8 h-8 rounded-full bg-gradient-to-br from-[#00AFCB] to-[#008FA8] text-white text-xs font-bold flex items-center justify-center shrink-0 shadow-[0_2px_6px_rgba(0,175,203,0.4)] ring-1 ring-white/20">
                   {(activeAdministration.company || activeAdministration.name).charAt(0).toUpperCase()}
                 </span>
                 <div className="min-w-0 text-left">
-                  <p className="text-[9px] text-white/50 leading-none uppercase tracking-wider">Administratie</p>
-                  <p className="text-xs font-medium text-white truncate leading-tight mt-0.5">{activeAdministration.company || activeAdministration.name}</p>
+                  <p className="text-[9px] text-white/45 leading-none uppercase tracking-wider">Administratie</p>
+                  <p className="text-xs font-semibold text-white truncate leading-tight mt-0.5">{activeAdministration.company || activeAdministration.name}</p>
                 </div>
-                <svg className="w-3 h-3 text-white/50 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                <svg className="w-3 h-3 text-white/45 shrink-0 group-hover:text-white/70 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
               </button>
             ) : (
               <Link href="/bookkeeper?section=administraties"
@@ -614,13 +614,12 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
           />
         </div>
 
-        {/* RIGHT — notification bell + section title + logout */}
-        <div className="flex items-center gap-1 shrink-0">
-          <span className="text-[10px] uppercase tracking-wider text-white/40 font-semibold px-2 hidden xl:inline">{currentTitle}</span>
+        {/* RIGHT — notification bell + logout */}
+        <div className="flex items-center gap-0.5 shrink-0 pl-2 border-l border-white/[0.06]">
           <NotificationBell variant="light" />
-          <button onClick={handleLogout} title="Uitloggen"
-            className="p-2 rounded-lg text-white/50 hover:text-red-300 hover:bg-red-500/10 transition-colors">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+          <button onClick={handleLogout} title="Uitloggen" aria-label="Uitloggen"
+            className="p-2 rounded-lg text-white/55 hover:text-red-300 hover:bg-red-500/10 transition-colors">
+            <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
           </button>
         </div>
       </header>

@@ -213,7 +213,7 @@ function ClientLayoutInner({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen">
       {/* Desktop top nav — premium dock-style, mirrors the accountant portal */}
-      <header className="hidden lg:flex fixed top-0 left-0 right-0 z-40 h-[84px] bg-gradient-to-b from-[#003942] to-[#004854] border-b border-black/20 shadow-[0_6px_24px_-10px_rgba(0,0,0,0.45)] items-center gap-4 px-5 pt-[env(safe-area-inset-top)]">
+      <header className="hidden lg:flex fixed top-0 left-0 right-0 z-40 h-[84px] bg-gradient-to-b from-[#002830] via-[#003942] to-[#004854] border-b border-white/[0.03] shadow-[0_8px_28px_-12px_rgba(0,0,0,0.55)] items-center gap-4 px-5 pt-[env(safe-area-inset-top)] before:pointer-events-none before:absolute before:inset-x-0 before:bottom-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent">
         {/* LEFT — logo */}
         <div className="flex items-center shrink-0">
           <Link href="/client" className="shrink-0">
@@ -227,11 +227,11 @@ function ClientLayoutInner({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* RIGHT — notification bell + logout */}
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-0.5 shrink-0 pl-2 border-l border-white/[0.06]">
           <NotificationBell variant="light" />
-          <button onClick={handleLogout} title="Uitloggen"
-            className="p-2 rounded-lg text-white/50 hover:text-red-300 hover:bg-red-500/10 transition-colors">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <button onClick={handleLogout} title="Uitloggen" aria-label="Uitloggen"
+            className="p-2 rounded-lg text-white/55 hover:text-red-300 hover:bg-red-500/10 transition-colors">
+            <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
             </svg>
           </button>
