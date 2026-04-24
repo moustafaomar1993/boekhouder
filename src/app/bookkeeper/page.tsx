@@ -333,13 +333,45 @@ function BookkeeperContent() {
     activeAdminId ? allClients.filter((c) => c.id === activeAdminId) : allClients
   ), [allClients, activeAdminId]);
 
-  // Clicking/entering Verkoop always returns to the Boeken customer overview
+  // Clicking/entering Verkoop — decide tab + filter from URL params.
+  //   ?tab=debiteurenbeheer     -> open the debtor management tab
+  //   ?tab=boeken  (default)    -> open the booking overview
+  //   ?filter=overdue           -> pre-select the "Verlopen" pill in
+  //                                debiteurenbeheer (used by the sidebar
+  //                                red count shortcut)
+  //   ?filter=to_book           -> pre-select the "Te boeken" pill in
+  //                                Boeken (used by the sidebar blue count
+  //                                shortcut)
+  // Always lands on the main overview (no boekenClient) so the sidebar
+  // shortcuts are truly global across the administration's data.
   useEffect(() => {
-    if (section === "verkoop") {
+    if (section !== "verkoop") return;
+    const tab = searchParams.get("tab");
+    const urlFilter = searchParams.get("filter");
+    setBoekenClient("");
+    if (tab === "debiteurenbeheer") {
+      setVerkoopTab("debiteurenbeheer");
+      if (urlFilter === "overdue") setDebiteurenStatusFilter("overdue");
+      else if (urlFilter === "open" || urlFilter === "new" || urlFilter === "paid") setDebiteurenStatusFilter(urlFilter);
+    } else {
+      setVerkoopTab("boeken");
+      if (urlFilter === "to_book" || urlFilter === "booked" || urlFilter === "processed" || urlFilter === "pending") setFilter(urlFilter);
+    }
+  }, [section, searchParams]);
+
+  // Sidebar "Verkoop" reset — also fires when the URL doesn't change
+  // (accountant is already on ?section=verkoop inside a customer and
+  // clicks the sidebar item again). See layout.tsx for the dispatch.
+  useEffect(() => {
+    function handler() {
       setVerkoopTab("boeken");
       setBoekenClient("");
+      setSelectedSalesIds(new Set());
+      setFilter("all");
     }
-  }, [section]);
+    window.addEventListener("bookkeeper:verkoop:reset", handler);
+    return () => window.removeEventListener("bookkeeper:verkoop:reset", handler);
+  }, []);
 
   async function handleBook(invoiceId: string, category?: string, vatType?: string) {
     setBookingLoading(invoiceId);
@@ -1189,9 +1221,13 @@ function BookkeeperContent() {
 
             {/* ─── DEBITEURENBEHEER TAB ─── */}
             {verkoopTab === "debiteurenbeheer" && (() => {
-              const dbClient = facturatieClient;
-              const dbClients = facturatieClients;
-              const dbInvoices = dbClient ? invoices.filter((inv) => inv.clientId === dbClient) : [];
+              // Debiteurenbeheer now works on the active administration's
+              // full invoice set by default. The dropdown is a *debtor*
+              // filter — "Alle debiteuren" keeps the global overview, or
+              // the accountant can narrow to one debtor by customer name.
+              const dbDebtor = facturatieClient; // "" = all, else a customer name
+              const dbDebtors = Array.from(new Set(invoices.map((i) => i.customerName))).filter(Boolean).sort();
+              const dbInvoices = dbDebtor ? invoices.filter((inv) => inv.customerName === dbDebtor) : invoices;
               // Sort logic
               const sortKey = debiteurenSort.key;
               const sortDir = debiteurenSort.dir;
@@ -1233,23 +1269,25 @@ function BookkeeperContent() {
 
               return (
                 <div className="space-y-4">
-                  <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+                  <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center flex-wrap">
                     <select value={facturatieClient} onChange={(e) => setFacturatieClient(e.target.value)}
-                      className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none min-w-[200px]">
-                      <option value="">Selecteer een klant...</option>
-                      {dbClients.map((c) => <option key={c.id} value={c.id}>{c.company || c.name}</option>)}
+                      className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none min-w-[220px]">
+                      <option value="">Alle debiteuren</option>
+                      {dbDebtors.map((name) => <option key={name} value={name}>{name}</option>)}
                     </select>
+                    <span className="text-xs text-gray-400">
+                      {dbDebtor ? `1 debiteur geselecteerd` : `${dbDebtors.length} debiteur${dbDebtors.length === 1 ? "" : "en"} · ${dbInvoices.length} facturen`}
+                    </span>
                   </div>
 
-                  {!dbClient && (
+                  {dbInvoices.length === 0 && (
                     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
                       <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                      <p className="text-sm text-gray-500">Selecteer een klant om het debiteurenbeheer te openen.</p>
-                      <p className="text-xs text-gray-400 mt-1">Beheer openstaande facturen, stuur herinneringen en volg debiteuren op.</p>
+                      <p className="text-sm text-gray-500">Geen debiteurenfacturen gevonden voor deze administratie.</p>
                     </div>
                   )}
 
-                  {dbClient && (
+                  {dbInvoices.length > 0 && (
                     <div className="space-y-4">
                       {/* Summary cards — clickable as filters */}
                       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
@@ -2857,14 +2895,117 @@ function BookkeeperContent() {
           finally { setBulkBookingLoading(false); }
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // Cross-module workflow monitor
+        // ═══════════════════════════════════════════════════════════════════
+        // Aggregate Openstaand / Geboekt / Verwerkt across all booking
+        // sources so Boekingen becomes the accounting-wide workflow screen
+        // instead of a sales-only view (spec §8-§11).
+        const verkoopCounts = {
+          open: invoices.filter((i) => i.bookkeepingStatus === "pending" || i.bookkeepingStatus === "to_book" || i.bookkeepingStatus === "processing").length,
+          booked: invoices.filter((i) => i.bookkeepingStatus === "booked").length,
+          processed: invoices.filter((i) => i.bookkeepingStatus === "processed").length,
+        };
+        const inkoopCounts = {
+          open: purchaseDocs.filter((d) => d.status === "uploaded" || d.status === "processing").length,
+          booked: purchaseDocs.filter((d) => d.status === "booked" && (() => {
+            const ref = d.bookedAt || d.documentDate || d.createdAt;
+            if (!ref) return true;
+            const dt = new Date(ref);
+            const now = new Date();
+            const q = Math.floor(dt.getMonth() / 3);
+            const curQ = Math.floor(now.getMonth() / 3);
+            return dt.getFullYear() === now.getFullYear() && q === curQ;
+          })()).length,
+          processed: purchaseDocs.filter((d) => d.status === "booked" && (() => {
+            const ref = d.bookedAt || d.documentDate || d.createdAt;
+            if (!ref) return false;
+            const dt = new Date(ref);
+            const now = new Date();
+            const q = Math.floor(dt.getMonth() / 3);
+            const curQ = Math.floor(now.getMonth() / 3);
+            return dt.getFullYear() < now.getFullYear() || (dt.getFullYear() === now.getFullYear() && q < curQ);
+          })()).length,
+        };
+        const memoriaalCounts = {
+          open: journalEntries.filter((j) => j.status !== "booked" && j.status !== "processed").length,
+          booked: journalEntries.filter((j) => j.status === "booked").length,
+          processed: journalEntries.filter((j) => j.status === "processed").length,
+        };
+        const workflowRows: { key: string; label: string; href: string; counts: { open: number; booked: number; processed: number } }[] = [
+          { key: "verkoop", label: "Verkoop", href: "/bookkeeper?section=verkoop&tab=boeken", counts: verkoopCounts },
+          { key: "inkoop", label: "Inkoop", href: "/bookkeeper?section=inkoop", counts: inkoopCounts },
+          { key: "memoriaal", label: "Memoriaal", href: "/bookkeeper?section=memoriaal", counts: memoriaalCounts },
+        ];
+        const totalOpen = workflowRows.reduce((s, r) => s + r.counts.open, 0);
+        const totalGeboekt = workflowRows.reduce((s, r) => s + r.counts.booked, 0);
+        const totalVerwerkt = workflowRows.reduce((s, r) => s + r.counts.processed, 0);
+
         return (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h1 className="text-xl sm:text-2xl font-bold text-[#3C2C1E]">Boekingen</h1>
-                <p className="text-sm text-[#6F5C4B]/70 mt-1">Alle geboekte facturen — verwerk voor BTW-aangifte</p>
+                <p className="text-sm text-[#6F5C4B]/70 mt-1">Centraal werkstroom-overzicht — alle boekingen per module</p>
               </div>
             </div>
+
+            {/* ═══ Cross-module workflow monitor ═══ */}
+            <section className="space-y-3">
+              {/* Overall totals */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-blue-50 rounded-xl p-4 shadow-sm border border-blue-200">
+                  <p className="text-xs text-blue-700 font-medium">Openstaand</p>
+                  <p className="text-xl font-bold text-blue-700">{totalOpen}</p>
+                  <p className="text-[10px] text-blue-600/70 mt-0.5">Nog te boeken</p>
+                </div>
+                <div className="bg-emerald-50 rounded-xl p-4 shadow-sm border border-emerald-200">
+                  <p className="text-xs text-emerald-700 font-medium">Geboekt</p>
+                  <p className="text-xl font-bold text-emerald-700">{totalGeboekt}</p>
+                  <p className="text-[10px] text-emerald-600/70 mt-0.5">In huidig kwartaal</p>
+                </div>
+                <div className="bg-green-50 rounded-xl p-4 shadow-sm border border-green-200">
+                  <p className="text-xs text-green-700 font-medium">Verwerkt</p>
+                  <p className="text-xl font-bold text-green-700">{totalVerwerkt}</p>
+                  <p className="text-[10px] text-green-600/70 mt-0.5">Oudere kwartalen / afgerond</p>
+                </div>
+              </div>
+
+              {/* Per-module workflow rows */}
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="hidden sm:grid grid-cols-[1fr,110px,110px,110px,110px] px-5 py-2.5 bg-gray-50 border-b border-gray-100 text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                  <span>Module</span>
+                  <span className="text-right">Openstaand</span>
+                  <span className="text-right">Geboekt</span>
+                  <span className="text-right">Verwerkt</span>
+                  <span className="text-right">Open module</span>
+                </div>
+                <div className="divide-y divide-gray-50">
+                  {workflowRows.map((r) => (
+                    <div key={r.key} className="grid grid-cols-2 sm:grid-cols-[1fr,110px,110px,110px,110px] gap-y-1 px-5 py-3 items-center hover:bg-gray-50/50">
+                      <div className="col-span-2 sm:col-span-1">
+                        <p className="text-sm font-medium text-[#3C2C1E]">{r.label}</p>
+                      </div>
+                      <div className="flex items-center justify-between sm:justify-end gap-2">
+                        <span className="sm:hidden text-[10px] text-gray-400 uppercase">Openstaand</span>
+                        <span className={`text-sm font-semibold ${r.counts.open > 0 ? "text-blue-700" : "text-gray-300"}`}>{r.counts.open}</span>
+                      </div>
+                      <div className="flex items-center justify-between sm:justify-end gap-2">
+                        <span className="sm:hidden text-[10px] text-gray-400 uppercase">Geboekt</span>
+                        <span className={`text-sm font-semibold ${r.counts.booked > 0 ? "text-emerald-700" : "text-gray-300"}`}>{r.counts.booked}</span>
+                      </div>
+                      <div className="flex items-center justify-between sm:justify-end gap-2">
+                        <span className="sm:hidden text-[10px] text-gray-400 uppercase">Verwerkt</span>
+                        <span className={`text-sm font-semibold ${r.counts.processed > 0 ? "text-green-700" : "text-gray-300"}`}>{r.counts.processed}</span>
+                      </div>
+                      <div className="col-span-2 sm:col-span-1 flex sm:justify-end">
+                        <Link href={r.href} className="text-xs font-medium text-[#00AFCB] hover:text-[#004854]">Open {r.label} →</Link>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
 
             {/* Stats with quarter detection */}
             {(() => {

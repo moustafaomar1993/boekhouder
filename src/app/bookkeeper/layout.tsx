@@ -192,19 +192,55 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
         <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-widest text-white/30">Boekhouder</p>
         {sidebarItems.map((item) => {
           const isActive = activeSection === item.key;
+          // Shortcut navigation for the sidebar count badges — bypasses the
+          // parent Link and jumps straight to a pre-filtered view.
+          const shortcutNav = (href: string) => (e: React.MouseEvent) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setMobileMenuOpen(false);
+            router.push(href);
+          };
           const linkEl = (
-            <Link href={item.href} onClick={() => setMobileMenuOpen(false)}
+            <Link href={item.href} onClick={() => {
+              setMobileMenuOpen(false);
+              // Sidebar "Verkoop" always resets to the main sales overview —
+              // even when the user is already on /bookkeeper?section=verkoop
+              // (URL doesn't change, so useSearchParams() effects won't fire
+              // on their own). The event below tells page.tsx to reset.
+              if (item.key === "verkoop" && typeof window !== "undefined") {
+                window.dispatchEvent(new CustomEvent("bookkeeper:verkoop:reset"));
+              }
+            }}
               className={`relative flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all ${
                 isActive ? "bg-[#00AFCB]/20 text-white" : "text-white/60 hover:bg-white/5 hover:text-white/90"
               }`}>
               {isActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-[#00AFCB] rounded-r-full" />}
               <span className={isActive ? "text-[#00AFCB]" : "text-white/40"}>{item.icon}</span>
               <span className="flex-1">{item.label}</span>
-              {/* Verkoop badges */}
+              {/* Verkoop badges — each is its own shortcut: the blue count
+                  jumps to the Boeken overview (where the workflow board
+                  already shows the te-boeken column), the red count jumps
+                  straight to Debiteurenbeheer with the Verlopen filter. */}
               {item.key === "verkoop" && (sidebarCounts.toProcess > 0 || sidebarCounts.overdue > 0) && (
                 <span className="flex items-center gap-1">
-                  {sidebarCounts.toProcess > 0 && <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-blue-500 text-[10px] font-bold text-white leading-none px-1">{sidebarCounts.toProcess}</span>}
-                  {sidebarCounts.overdue > 0 && <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white leading-none px-1">{sidebarCounts.overdue}</span>}
+                  {sidebarCounts.toProcess > 0 && (
+                    <span role="button" tabIndex={0}
+                      onClick={shortcutNav("/bookkeeper?section=verkoop&tab=boeken&filter=to_book")}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") shortcutNav("/bookkeeper?section=verkoop&tab=boeken&filter=to_book")(e as unknown as React.MouseEvent); }}
+                      title="Open alle te boeken verkoopfacturen"
+                      className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-blue-500 text-[10px] font-bold text-white leading-none px-1 hover:bg-blue-400 cursor-pointer">
+                      {sidebarCounts.toProcess}
+                    </span>
+                  )}
+                  {sidebarCounts.overdue > 0 && (
+                    <span role="button" tabIndex={0}
+                      onClick={shortcutNav("/bookkeeper?section=verkoop&tab=debiteurenbeheer&filter=overdue")}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") shortcutNav("/bookkeeper?section=verkoop&tab=debiteurenbeheer&filter=overdue")(e as unknown as React.MouseEvent); }}
+                      title="Open verlopen debiteurenoverzicht"
+                      className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white leading-none px-1 hover:bg-red-400 cursor-pointer">
+                      {sidebarCounts.overdue}
+                    </span>
+                  )}
                 </span>
               )}
               {/* Inkoop badge */}
