@@ -1152,9 +1152,32 @@ function BookkeeperContent() {
       )}
 
       {/* ═══ DASHBOARD ═══ */}
-      {section === "dashboard" && activeAdminId && (
+      {section === "dashboard" && activeAdminId && (() => {
+        // "Klanten" here means the debtors of the active administration —
+        // the real business customers the admin invoices. NOT the
+        // administration itself.
+        const dashboardCustomerMap = new Map<string, { name: string; count: number; total: number; open: number }>();
+        invoices.forEach((inv) => {
+          const key = (inv.customerName || "").trim() || "(zonder naam)";
+          const entry = dashboardCustomerMap.get(key) || { name: key, count: 0, total: 0, open: 0 };
+          entry.count += 1;
+          entry.total += inv.total;
+          if (inv.status === "sent" || inv.status === "overdue") entry.open += inv.total;
+          dashboardCustomerMap.set(key, entry);
+        });
+        const dashboardCustomers = Array.from(dashboardCustomerMap.values())
+          .sort((a, b) => b.total - a.total);
+
+        return (
         <div className="space-y-6">
-          <h1 className="text-xl sm:text-2xl font-bold text-[#3C2C1E]">Dashboard</h1>
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-[#3C2C1E]">Dashboard</h1>
+            {activeAdministration && (
+              <p className="text-xs text-gray-400 mt-1">
+                Actieve administratie: <span className="font-medium text-gray-600">{activeAdministration.company || activeAdministration.name}</span>
+              </p>
+            )}
+          </div>
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
@@ -1179,8 +1202,10 @@ function BookkeeperContent() {
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
               <h2 className="text-base font-semibold text-[#3C2C1E] mb-3">Overzicht</h2>
               <div className="space-y-3">
-                <div className="flex justify-between py-2 border-b border-gray-50"><span className="text-sm text-gray-600">Totale omzet klanten</span><span className="text-sm font-semibold">{formatCurrency(totalRevenue)}</span></div>
-                <div className="flex justify-between py-2 border-b border-gray-50"><span className="text-sm text-gray-600">Actieve klanten</span><span className="text-sm font-semibold">{clients.filter((c) => c.role === "client").length}</span></div>
+                <div className="flex justify-between py-2 border-b border-gray-50"><span className="text-sm text-gray-600">Totale omzet</span><span className="text-sm font-semibold">{formatCurrency(totalRevenue)}</span></div>
+                {/* Actieve klanten = unieke debiteuren van de administratie
+                    — NIET de administratie zelf. */}
+                <div className="flex justify-between py-2 border-b border-gray-50"><span className="text-sm text-gray-600">Aantal klanten</span><span className="text-sm font-semibold">{dashboardCustomers.length}</span></div>
                 <div className="flex justify-between py-2"><span className="text-sm text-gray-600">Te boeken facturen</span><span className="text-sm font-semibold text-amber-600">{pendingCount + processingCount}</span></div>
               </div>
             </div>
@@ -1195,10 +1220,40 @@ function BookkeeperContent() {
                   <StatusBadge status={inv.bookkeepingStatus} />
                 </div>
               ))}
+              {invoices.length === 0 && <p className="text-xs text-gray-400 py-2">Nog geen facturen voor deze administratie.</p>}
             </div>
           </div>
+
+          {/* ═══ Klanten van de actieve administratie ═══ */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+            <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+              <h2 className="text-base font-semibold text-[#3C2C1E]">Klanten</h2>
+              <Link href="/bookkeeper?section=verkoop&tab=debiteurenbeheer" className="text-xs text-[#00AFCB] font-medium hover:text-[#004854]">Debiteurenbeheer openen →</Link>
+            </div>
+            <p className="text-[11px] text-gray-400 mb-3">Debiteuren/relaties binnen deze administratie.</p>
+            {dashboardCustomers.length === 0 ? (
+              <p className="text-sm text-gray-400 py-4 text-center">Nog geen klanten voor deze administratie.</p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {dashboardCustomers.slice(0, 9).map((c) => (
+                  <Link key={c.name} href={`/bookkeeper?section=verkoop&tab=debiteurenbeheer`}
+                    className="group block border border-gray-100 rounded-lg p-3 hover:border-[#00AFCB]/40 hover:bg-gray-50 transition-all">
+                    <p className="text-sm font-medium text-[#3C2C1E] truncate group-hover:text-[#00AFCB]">{c.name}</p>
+                    <p className="text-[11px] text-gray-500 mt-0.5">{c.count} facturen · {formatCurrency(c.total)}</p>
+                    {c.open > 0 && (
+                      <p className="text-[10px] text-amber-600 mt-0.5">Openstaand: {formatCurrency(c.open)}</p>
+                    )}
+                  </Link>
+                ))}
+              </div>
+            )}
+            {dashboardCustomers.length > 9 && (
+              <p className="text-[11px] text-gray-400 text-center mt-3">+{dashboardCustomers.length - 9} meer klanten</p>
+            )}
+          </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* ═══ VERKOOP ═══ */}
       {section === "verkoop" && activeAdminId && (() => {
@@ -1508,32 +1563,55 @@ function BookkeeperContent() {
 
             {/* ─── BOEKEN TAB ─── */}
             {verkoopTab === "boeken" && (() => {
-              // Build client-level data for customer tiles. IMPORTANT: we list
-              // every bookkeeping client (role === "client") — including ones
-              // that have no invoices yet — so a relation created in the
-              // customer portal shows up here immediately as a tile, even
-              // before its first invoice arrives. Previously this list filtered
-              // on `clientInvoiceMap.has(c.id)`, which hid brand-new clients
-              // until they booked something.
-              const clientInvoiceMap = new Map<string, Invoice[]>();
-              invoices.forEach((inv) => { const arr = clientInvoiceMap.get(inv.clientId) || []; arr.push(inv); clientInvoiceMap.set(inv.clientId, arr); });
+              // CORRECT ACCOUNTING STRUCTURE:
+              //   active administration  = the User (role="client") the
+              //                            accountant is working inside
+              //   klanten / debiteuren   = the CUSTOMERS of that admin
+              //                            (invoice.customerName / customerId)
+              //
+              // The tiles below must therefore be built from the admin's
+              // customers — NOT from the administration record itself.
+              // Previously the code grouped by inv.clientId, which collapsed
+              // everything into one tile showing the administration's own
+              // company name as if it were a sales debtor — an accounting
+              // nonsense. We now group by inv.customerName so De Vries sees
+              // "TechStart", "Digital Mountains", etc., and Demo BV sees its
+              // own debtors.
+              const customerInvoiceMap = new Map<string, Invoice[]>();
+              invoices.forEach((inv) => {
+                const key = (inv.customerName || "").trim() || "(zonder naam)";
+                const arr = customerInvoiceMap.get(key) || [];
+                arr.push(inv);
+                customerInvoiceMap.set(key, arr);
+              });
 
-              const clientTiles = clients
-                .filter((c) => c.role === "client")
-                .map((c) => {
-                  const invs = clientInvoiceMap.get(c.id) || [];
+              // Also surface admin's Customers that exist but haven't been
+              // invoiced yet — they should still show up with 0% progress
+              // (matches the "show newly created relations too" rule).
+              const extraNames: string[] = [];
+              // NOTE: the accountant portal doesn't currently fetch
+              // /api/customers for the active administration, so we rely on
+              // invoice history as the authoritative debtor list. A future
+              // follow-up could add a per-admin customers fetch if a richer
+              // list is needed.
+              extraNames.forEach((n) => {
+                if (!customerInvoiceMap.has(n)) customerInvoiceMap.set(n, []);
+              });
+
+              const clientTiles = Array.from(customerInvoiceMap.entries())
+                .map(([customerName, invs]) => {
                   const openCount = invs.filter((i) => i.bookkeepingStatus === "pending" || i.bookkeepingStatus === "to_book").length;
                   const bookedCt = invs.filter((i) => i.bookkeepingStatus === "booked" || i.bookkeepingStatus === "processed").length;
-                  // Newly created relations with no invoices yet sit at 0% — a
-                  // neutral default that keeps them in the overview without
-                  // pretending they're "fully booked".
                   const progress = invs.length > 0 ? Math.round((bookedCt / invs.length) * 100) : 0;
                   const amount = invs.reduce((s, i) => s + i.total, 0);
                   const hasActivity = invs.length > 0;
-                  return { id: c.id, name: c.company || c.name, total: invs.length, open: openCount, booked: bookedCt, progress, amount, hasActivity };
+                  // id == customerName so the existing drill-down mechanism
+                  // (boekenClient stores the tile id) transparently switches
+                  // to a customer-name filter.
+                  return { id: customerName, name: customerName, total: invs.length, open: openCount, booked: bookedCt, progress, amount, hasActivity };
                 })
-                // Sort: open work first, then relations with any activity, then
-                // brand-new empty relations last — but they still appear.
+                // Sort: open work first, then tiles with any activity, then
+                // empty debtors last — consistent with the previous order.
                 .sort((a, b) => (b.open - a.open) || (Number(b.hasActivity) - Number(a.hasActivity)) || a.name.localeCompare(b.name));
 
               const vTotalOpen = clientTiles.reduce((s, c) => s + c.open, 0);
@@ -1574,11 +1652,12 @@ function BookkeeperContent() {
 
               // ── CUSTOMER OVERVIEW (no client selected) ──
               if (!boekenClient) {
-                // Workflow board data — filter invoices by relation + period,
-                // then bucket into kanban stages based on bookkeepingStatus.
-                const boardRelationClients = clients.filter((c) => c.role === "client");
+                // Workflow board: filter by debtor (customerName) + period.
+                // The dropdown lists the active administration's actual
+                // customers / debtors — not bookkeeping clients.
+                const boardRelationOptions = Array.from(customerInvoiceMap.keys()).sort();
                 const boardBaseInvoices = invoices.filter((inv) => {
-                  if (boardRelationFilter !== "all" && inv.clientId !== boardRelationFilter) return false;
+                  if (boardRelationFilter !== "all" && inv.customerName !== boardRelationFilter) return false;
                   if (!inBoardPeriod(inv.date)) return false;
                   return true;
                 });
@@ -1625,9 +1704,9 @@ function BookkeeperContent() {
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
                           <select value={boardRelationFilter} onChange={(e) => setBoardRelationFilter(e.target.value)}
-                            className="border border-gray-200 bg-white rounded-lg px-2.5 py-1.5 text-xs focus:ring-2 focus:ring-[#00AFCB]/30 outline-none">
-                            <option value="all">Alle relaties</option>
-                            {boardRelationClients.map((c) => <option key={c.id} value={c.id}>{c.company || c.name}</option>)}
+                            className="border border-gray-200 bg-white rounded-lg px-2.5 py-1.5 text-xs focus:ring-2 focus:ring-[#00AFCB]/30 outline-none max-w-[220px]">
+                            <option value="all">Alle klanten</option>
+                            {boardRelationOptions.map((name) => <option key={name} value={name}>{name}</option>)}
                           </select>
                           <select value={boardPeriod} onChange={(e) => setBoardPeriod(e.target.value as "all" | "month" | "quarter" | "year")}
                             className="border border-gray-200 bg-white rounded-lg px-2.5 py-1.5 text-xs focus:ring-2 focus:ring-[#00AFCB]/30 outline-none">
@@ -1944,7 +2023,10 @@ function BookkeeperContent() {
 
                     {/* Client tiles */}
                     <div>
-                      <h2 className="text-sm font-semibold text-gray-700 mb-3">Klanten / Relaties {boekenSummaryFilter !== "all" && <span className="text-xs font-normal text-gray-400 ml-2">— gefilterd</span>}</h2>
+                      <div className="flex items-baseline justify-between flex-wrap gap-1 mb-3">
+                        <h2 className="text-sm font-semibold text-gray-700">Klanten / debiteuren {boekenSummaryFilter !== "all" && <span className="text-xs font-normal text-gray-400 ml-2">— gefilterd</span>}</h2>
+                        <p className="text-[11px] text-gray-400">Debiteuren binnen {activeAdministration ? (activeAdministration.company || activeAdministration.name) : "de actieve administratie"}</p>
+                      </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                         {clientTiles.filter((c) => {
                           if (boekenSummaryFilter === "open") return c.open > 0;
@@ -1998,10 +2080,12 @@ function BookkeeperContent() {
               }
 
               // ── FILTERED PER-CUSTOMER VIEW ──
+              // boekenClient now holds a customer NAME (debtor within the
+              // active administration) — not a bookkeeping-client id.
               const tile = clientTiles.find((c) => c.id === boekenClient);
               if (!tile) { setBoekenClient(""); return null; }
 
-              const clientInvs = (clientInvoiceMap.get(boekenClient) || []).filter((inv) => {
+              const clientInvs = (customerInvoiceMap.get(boekenClient) || []).filter((inv) => {
                 if (filter !== "all" && inv.bookkeepingStatus !== filter) return false;
                 return true;
               });
@@ -3307,9 +3391,15 @@ function BookkeeperContent() {
 
           {/* ═══ Workflow board (Level 1 — global purchase workflow) ═══ */}
           {(() => {
-            const inkoopBoardClients = [...new Map(purchaseDocs.map((d) => [d.userId, d.user])).values()];
+            // Supplier filter — list the actual suppliers / creditors that
+            // belong to the active administratie. Previously we grouped by
+            // purchaseDocs.userId (the admin itself), which hid real
+            // suppliers behind the administration label.
+            const supplierOptions = Array.from(new Set(
+              purchaseDocs.map((d) => (d.supplierName || "").trim()).filter((n) => n.length > 0)
+            )).sort();
             const inkoopBoardBase = purchaseDocs.filter((d) => {
-              if (boardRelationFilter !== "all" && d.userId !== boardRelationFilter) return false;
+              if (boardRelationFilter !== "all" && (d.supplierName || "") !== boardRelationFilter) return false;
               if (!inBoardPeriod(d.documentDate || d.createdAt)) return false;
               return true;
             });
@@ -3363,9 +3453,9 @@ function BookkeeperContent() {
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <select value={boardRelationFilter} onChange={(e) => setBoardRelationFilter(e.target.value)}
-                      className="border border-gray-200 bg-white rounded-lg px-2.5 py-1.5 text-xs focus:ring-2 focus:ring-[#00AFCB]/30 outline-none">
-                      <option value="all">Alle relaties</option>
-                      {inkoopBoardClients.map((c) => <option key={c.id} value={c.id}>{c.company || c.name}</option>)}
+                      className="border border-gray-200 bg-white rounded-lg px-2.5 py-1.5 text-xs focus:ring-2 focus:ring-[#00AFCB]/30 outline-none max-w-[220px]">
+                      <option value="all">Alle leveranciers</option>
+                      {supplierOptions.map((name) => <option key={name} value={name}>{name}</option>)}
                     </select>
                     <select value={boardPeriod} onChange={(e) => setBoardPeriod(e.target.value as "all" | "month" | "quarter" | "year")}
                       className="border border-gray-200 bg-white rounded-lg px-2.5 py-1.5 text-xs focus:ring-2 focus:ring-[#00AFCB]/30 outline-none">
