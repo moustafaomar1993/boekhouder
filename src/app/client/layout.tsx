@@ -5,21 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import NotificationBell from "@/components/NotificationBell";
-import { TopDock, type TopDockItem } from "@/components/TopDock";
-
-// Per-module gradient for the client-portal dock — matches the palette
-// used in the bookkeeper portal so the two apps feel like siblings.
-const MODULE_COLORS: Record<string, string> = {
-  dashboard: "from-slate-600 to-slate-700",
-  verkoop:   "from-emerald-500 to-emerald-600",
-  inkoop:    "from-amber-500 to-orange-600",
-  bank:      "from-sky-500 to-blue-600",
-  fiscaal:   "from-purple-500 to-fuchsia-600",
-  berichten: "from-pink-500 to-rose-600",
-  planning:  "from-violet-500 to-purple-600",
-  klanten:   "from-indigo-500 to-indigo-600",
-  instellingen: "from-slate-500 to-slate-600",
-};
+import { SideRail, type SideRailItem } from "@/components/SideRail";
 
 const moduleItems: { key: string; label: string; href: string; icon: ReactNode }[] = [
   {
@@ -120,6 +106,7 @@ function ClientLayoutInner({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [logoutHover, setLogoutHover] = useState(false);
   const isMainPage = pathname === "/client";
   const lastRefresh = useRef(0);
 
@@ -141,7 +128,6 @@ function ClientLayoutInner({ children }: { children: React.ReactNode }) {
     return () => { events.forEach((e) => window.removeEventListener(e, refreshSession)); };
   }, [refreshSession]);
 
-  // Which module is active — derived from the current URL
   const activeSection: string = isMainPage
     ? (searchParams.get("section") || "dashboard")
     : pathname === "/client/customers"
@@ -170,8 +156,7 @@ function ClientLayoutInner({ children }: { children: React.ReactNode }) {
     router.push("/login");
   }
 
-  // Mobile nav content — stacked list, matches the accountant portal's
-  // mobile menu so the two portals feel consistent on small screens.
+  // Mobile menu — simple vertical list, matches the accountant portal.
   const mobileNav = (
     <>
       <nav className="flex-1 px-3 py-5 space-y-0.5 overflow-y-auto">
@@ -202,43 +187,51 @@ function ClientLayoutInner({ children }: { children: React.ReactNode }) {
     </>
   );
 
-  const dockItems: TopDockItem[] = moduleItems.map((item) => ({
+  const railItems: SideRailItem[] = moduleItems.map((item) => ({
     key: item.key,
     label: item.label,
     href: item.href,
     icon: item.icon,
-    gradient: MODULE_COLORS[item.key] || "from-slate-500 to-slate-600",
   }));
 
   return (
     <div className="flex min-h-screen">
-      {/* Desktop top nav — premium dock-style, mirrors the accountant portal */}
-      <header className="hidden lg:flex fixed top-0 left-0 right-0 z-40 h-[84px] bg-gradient-to-b from-[#002830] via-[#003942] to-[#004854] border-b border-white/[0.03] shadow-[0_8px_28px_-12px_rgba(0,0,0,0.55)] items-center gap-4 px-5 pt-[env(safe-area-inset-top)] before:pointer-events-none before:absolute before:inset-x-0 before:bottom-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent">
-        {/* LEFT — logo */}
-        <div className="flex items-center shrink-0">
-          <Link href="/client" className="shrink-0">
-            <Image src="/logo.svg" alt="HAMZA Deboekhouder" width={120} height={31} className="brightness-0 invert" priority />
+      {/* Desktop left sidebar — compact icon rail with hover expansion */}
+      <aside className="hidden lg:flex w-14 bg-[#004854] flex-col fixed top-0 left-0 h-full z-40 pt-[env(safe-area-inset-top)] overflow-visible shadow-[4px_0_20px_-10px_rgba(0,0,0,0.3)]">
+        {/* Logo — compact brand mark */}
+        <div className="flex items-center justify-center h-14 border-b border-white/10 shrink-0">
+          <Link href="/client" aria-label="Home" className="w-9 h-9 rounded-lg bg-gradient-to-br from-[#00AFCB] to-[#008FA8] flex items-center justify-center shadow-[0_2px_8px_rgba(0,175,203,0.35)]">
+            <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M4 21V5a2 2 0 012-2h4a2 2 0 012 2v3h6a2 2 0 012 2v11H4z M8 10v4M16 12v6" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} stroke="currentColor" fill="none" />
+            </svg>
           </Link>
         </div>
 
-        {/* CENTER — dock. overflow-visible is critical: icons magnify DOWN
-            into the content area, and the hover tooltip sits even further
-            below. Any vertical clipping here would cut them off. */}
-        <div className="flex-1 flex justify-center min-w-0 overflow-visible">
-          <TopDock items={dockItems} activeKey={activeSection} />
+        {/* Main nav */}
+        <div className="flex-1 overflow-y-auto overflow-x-visible mt-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <SideRail items={railItems} activeKey={activeSection} />
         </div>
 
-        {/* RIGHT — notification bell + logout */}
-        <div className="flex items-center gap-0.5 shrink-0 pl-2 border-l border-white/[0.06]">
-          <NotificationBell variant="light" />
-          <button onClick={handleLogout} title="Uitloggen" aria-label="Uitloggen"
-            className="p-2 rounded-lg text-white/55 hover:text-red-300 hover:bg-red-500/10 transition-colors">
-            <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-            </svg>
+        {/* Bottom — bell + logout */}
+        <div className="border-t border-white/10 px-1.5 py-2 space-y-1">
+          <div className="h-11 flex items-center justify-start">
+            <NotificationBell variant="light" />
+          </div>
+          <button onClick={handleLogout} aria-label="Uitloggen"
+            onMouseEnter={() => setLogoutHover(true)}
+            onMouseLeave={() => setLogoutHover(false)}
+            className={`group relative flex items-center h-11 rounded-xl overflow-hidden whitespace-nowrap transition-[width,background-color,color] duration-300 ease-out ${
+              logoutHover ? "bg-red-500/15 text-red-300 w-[188px] shadow-[0_6px_20px_-8px_rgba(0,0,0,0.6)] z-30" : "bg-transparent text-white/55 w-11"
+            }`}>
+            <span className="w-11 h-11 shrink-0 flex items-center justify-center">
+              <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+            </span>
+            <span className="text-[13px] font-medium pr-4 transition-opacity duration-200" style={{ opacity: logoutHover ? 1 : 0 }}>Uitloggen</span>
           </button>
         </div>
-      </header>
+      </aside>
 
       {/* Mobile header */}
       <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-[#004854] border-b border-white/10 pt-[env(safe-area-inset-top)]">
@@ -278,7 +271,7 @@ function ClientLayoutInner({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 min-h-screen bg-[#F5F7FA] pt-14 lg:pt-[84px]">
+      <main className="flex-1 min-h-screen bg-[#F5F7FA] pt-14 lg:pt-0 lg:ml-14">
         {children}
       </main>
     </div>
