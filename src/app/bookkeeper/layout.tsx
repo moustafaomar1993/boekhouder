@@ -237,15 +237,16 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
               {isActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-[#00AFCB] rounded-r-full" />}
               <span className={isActive ? "text-[#00AFCB]" : "text-white/40"}>{item.icon}</span>
               <span className="flex-1">{item.label}</span>
-              {/* Verkoop badges — each is its own shortcut: the blue count
-                  jumps to the Boeken overview (where the workflow board
-                  already shows the te-boeken column), the red count jumps
-                  straight to Debiteurenbeheer with the Verlopen filter. */}
+              {/* Module notification badges. Hover on a badge opens the
+                  popup for that specific color; hover on the module row
+                  itself does nothing. Click behavior is unchanged — each
+                  badge still jumps to its filtered view. */}
               {item.key === "verkoop" && (sidebarCounts.toProcess > 0 || sidebarCounts.overdue > 0) && (
                 <span className="flex items-center gap-1">
                   {sidebarCounts.toProcess > 0 && (
                     <span role="button" tabIndex={0}
-                      onMouseEnter={() => setPopupIntent("toBook")}
+                      onMouseEnter={() => { setPopupIntent("toBook"); openModulePopup("verkoop"); }}
+                      onMouseLeave={scheduleCloseModulePopup}
                       onClick={shortcutNav("/bookkeeper?section=verkoop&tab=boeken&filter=to_book")}
                       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") shortcutNav("/bookkeeper?section=verkoop&tab=boeken&filter=to_book")(e as unknown as React.MouseEvent); }}
                       title="Nieuwe / te boeken verkoopfacturen"
@@ -255,7 +256,8 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
                   )}
                   {sidebarCounts.overdue > 0 && (
                     <span role="button" tabIndex={0}
-                      onMouseEnter={() => setPopupIntent("overdue")}
+                      onMouseEnter={() => { setPopupIntent("overdue"); openModulePopup("verkoop"); }}
+                      onMouseLeave={scheduleCloseModulePopup}
                       onClick={shortcutNav("/bookkeeper?section=verkoop&tab=debiteurenbeheer&filter=overdue")}
                       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") shortcutNav("/bookkeeper?section=verkoop&tab=debiteurenbeheer&filter=overdue")(e as unknown as React.MouseEvent); }}
                       title="Verlopen debiteurenfacturen"
@@ -267,13 +269,29 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
               )}
               {/* Inkoop badge */}
               {item.key === "inkoop" && sidebarCounts.inkoopNew > 0 && (
-                <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-blue-500 text-[10px] font-bold text-white leading-none px-1">{sidebarCounts.inkoopNew}</span>
+                <span
+                  onMouseEnter={() => { setPopupIntent(null); openModulePopup("inkoop"); }}
+                  onMouseLeave={scheduleCloseModulePopup}
+                  title="Nieuw geüploade inkoopdocumenten"
+                  className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-blue-500 text-[10px] font-bold text-white leading-none px-1 cursor-pointer hover:bg-blue-400">{sidebarCounts.inkoopNew}</span>
               )}
               {/* Boekingen badges */}
               {item.key === "boekingen" && (sidebarCounts.boekingenNew > 0 || sidebarCounts.boekingenOldQ > 0) && (
                 <span className="flex items-center gap-1">
-                  {sidebarCounts.boekingenNew > 0 && <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-blue-500 text-[10px] font-bold text-white leading-none px-1">{sidebarCounts.boekingenNew}</span>}
-                  {sidebarCounts.boekingenOldQ > 0 && <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white leading-none px-1">{sidebarCounts.boekingenOldQ}</span>}
+                  {sidebarCounts.boekingenNew > 0 && (
+                    <span
+                      onMouseEnter={() => { setPopupIntent(null); openModulePopup("boekingen"); }}
+                      onMouseLeave={scheduleCloseModulePopup}
+                      title="Geboekt"
+                      className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-blue-500 text-[10px] font-bold text-white leading-none px-1 cursor-pointer hover:bg-blue-400">{sidebarCounts.boekingenNew}</span>
+                  )}
+                  {sidebarCounts.boekingenOldQ > 0 && (
+                    <span
+                      onMouseEnter={() => { setPopupIntent(null); openModulePopup("boekingen"); }}
+                      onMouseLeave={scheduleCloseModulePopup}
+                      title="Ouder kwartaal — verwerk voor BTW-aangifte"
+                      className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white leading-none px-1 cursor-pointer hover:bg-red-400">{sidebarCounts.boekingenOldQ}</span>
+                  )}
                 </span>
               )}
             </Link>
@@ -313,10 +331,12 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
                 ? "/bookkeeper?section=verkoop&tab=boeken&filter=to_book"
                 : "/bookkeeper?section=verkoop";
             return (
+              // IMPORTANT: no hover handlers on this wrapper. The popup is
+              // triggered ONLY by hovering the actual notification badges
+              // (see their onMouseEnter inside linkEl). Hovering the module
+              // label / icon itself must do nothing.
               <div key={item.key} className="relative"
-                ref={(el) => { moduleLinkRefs.current[item.key] = el; }}
-                onMouseEnter={() => { setPopupIntent(null); openModulePopup(item.key); }}
-                onMouseLeave={() => { setPopupIntent(null); scheduleCloseModulePopup(); }}>
+                ref={(el) => { moduleLinkRefs.current[item.key] = el; }}>
                 {linkEl}
                 {hoveredModule === item.key && hasItems && modulePopupPos && typeof window !== "undefined" && window.innerWidth >= 1024 && createPortal(
                   <div
