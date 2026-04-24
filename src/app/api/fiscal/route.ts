@@ -1,10 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getFiscalSummary } from "@/lib/data";
+import { getSession } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 
+// Identity-aware: customer-portal users always see their OWN fiscal
+// summary; bookkeeper/admin can request a specific clientId. Previously
+// this route accepted any clientId with no authentication at all.
 export async function GET(request: NextRequest) {
-  const clientId = request.nextUrl.searchParams.get("clientId");
-  if (!clientId) {
-    return NextResponse.json({ error: "clientId is required" }, { status: 400 });
-  }
-  return NextResponse.json(await getFiscalSummary(clientId));
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Niet ingelogd" }, { status: 401 });
+
+  const me = await prisma.user.findUnique({ where: { id: session.userId }, select: { id: true, role: true } });
+  if (!me) return NextResponse.json({ error: "Ongeldige sessie" }, { status: 401 });
+  const isStaff = me.role === "bookkeeper" || me.role === "admin";
+
+  const requestedClientId = request.nextUrl.searchParams.get("clientId");
+  const effectiveClientId = isStaff && requestedClientId ? requestedClientId : me.id;
+  return NextResponse.json(await getFiscalSummary(effectiveClientId));
 }

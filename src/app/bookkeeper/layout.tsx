@@ -446,7 +446,7 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
               </div>
             )}
           </div>
-          <NotificationBell variant="light" />
+          <NotificationBell variant="light" administrationId={activeAdministration ? activeAdministration.id : null} />
         </div>
       </div>
 
@@ -464,7 +464,7 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
             </Link>
           )}
           <div className="flex items-center gap-1 shrink-0">
-            <NotificationBell />
+            <NotificationBell administrationId={activeAdministration ? activeAdministration.id : null} />
             <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="p-2 rounded-lg text-white/70 hover:bg-white/10 transition-colors"
               aria-label={mobileMenuOpen ? "Menu sluiten" : "Menu openen"}>

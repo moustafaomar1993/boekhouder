@@ -1,12 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAllInvoices, getInvoicesByClient, addInvoice } from "@/lib/data";
 import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
-  const clientId = request.nextUrl.searchParams.get("clientId");
+  // Identity-aware scoping. Customer-portal users may only read their own
+  // invoices; bookkeeper/admin accounts can query by clientId or get all.
+  // Any stale client-side code that passes someone else's clientId is
+  // forced back to the session owner — fail safe, not fail open.
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Niet ingelogd" }, { status: 401 });
+  const me = await prisma.user.findUnique({ where: { id: session.userId }, select: { id: true, role: true } });
+  if (!me) return NextResponse.json({ error: "Ongeldige sessie" }, { status: 401 });
+
+  const requestedClientId = request.nextUrl.searchParams.get("clientId");
   const customerId = request.nextUrl.searchParams.get("customerId");
+  const isStaff = me.role === "bookkeeper" || me.role === "admin";
 
   if (customerId) {
+    // For a customer-scoped lookup, require that the customer belongs to
+    // the caller (unless staff). Without this check, any authenticated
+    // user could enumerate any customer's invoices.
+    if (!isStaff) {
+      const customer = await prisma.customer.findUnique({ where: { id: customerId }, select: { userId: true } });
+      if (!customer || customer.userId !== me.id) {
+        return NextResponse.json({ error: "Niet toegestaan" }, { status: 403 });
+      }
+    }
     const invoices = await prisma.invoice.findMany({
       where: { customerId },
       include: { items: true },
@@ -15,7 +35,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(invoices);
   }
 
-  const invoices = clientId ? await getInvoicesByClient(clientId) : await getAllInvoices();
+  // Customer portal: always scope to self regardless of query param.
+  // Bookkeeper/admin: honor the explicit clientId param, or fall back to all.
+  const effectiveClientId = isStaff ? requestedClientId : me.id;
+  const invoices = effectiveClientId ? await getInvoicesByClient(effectiveClientId) : await getAllInvoices();
   return NextResponse.json(invoices);
 }
 
@@ -37,7 +60,16 @@ async function generateUniqueInvoiceNumber(clientId: string): Promise<string> {
 }
 
 export async function POST(request: NextRequest) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Niet ingelogd" }, { status: 401 });
+  const me = await prisma.user.findUnique({ where: { id: session.userId }, select: { id: true, role: true } });
+  if (!me) return NextResponse.json({ error: "Ongeldige sessie" }, { status: 401 });
+  const isStaff = me.role === "bookkeeper" || me.role === "admin";
+
   const body = await request.json();
+  // Force clientId to the session owner unless the caller is staff.
+  // Prevents a customer from creating an invoice on behalf of another user.
+  if (!isStaff) body.clientId = me.id;
   const items = body.items || [];
   const subtotal = items.reduce((sum: number, item: { quantity: number; unitPrice: number }) => sum + item.quantity * item.unitPrice, 0);
   const vatAmount = items.reduce(

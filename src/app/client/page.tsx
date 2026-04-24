@@ -5,7 +5,11 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { Invoice, FiscalSummary, User } from "@/lib/data";
 
-const CLIENT_ID = "client-1";
+// NOTE: the customer portal deliberately no longer hardcodes a client id.
+// Every data request is scoped to the session user on the server; the
+// header/company label comes from /api/profile (the logged-in user). This
+// is the fix for the cross-tenant contamination where every login used to
+// appear as "De Vries Consulting BV" regardless of the actual session.
 
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(amount);
@@ -118,12 +122,15 @@ function ClientPortalContent() {
   const [emailSending, setEmailSending] = useState(false);
   const [emailResult, setEmailResult] = useState("");
 
-  // Data fetching
+  // Data fetching — everything scoped to the logged-in session user. The
+  // server enforces it too (see /api/profile, /api/invoices, /api/fiscal,
+  // /api/clients), so even an unauthenticated or stale client can't
+  // accidentally fetch another user's data.
   useEffect(() => {
-    fetch(`/api/invoices?clientId=${CLIENT_ID}`).then((r) => r.json()).then(setInvoices);
-    fetch(`/api/fiscal?clientId=${CLIENT_ID}`).then((r) => r.json()).then(setFiscal);
-    fetch(`/api/clients`).then((r) => r.json()).then((clients: User[]) => {
-      setClient(clients.find((c) => c.id === CLIENT_ID) || null);
+    fetch(`/api/invoices`).then((r) => r.json()).then(setInvoices);
+    fetch(`/api/fiscal`).then((r) => r.json()).then(setFiscal);
+    fetch(`/api/profile`).then((r) => (r.ok ? r.json() : null)).then((user: User | null) => {
+      if (user) setClient(user);
     });
     fetch("/api/customers").then((r) => r.ok ? r.json() : []).then((data) => {
       if (Array.isArray(data)) setCustomers(data);
@@ -220,7 +227,7 @@ function ClientPortalContent() {
     if (!confirm(`Weet je zeker dat je ${eligible.length} factuur/facturen als betaald wilt markeren?`)) return;
     setBulkLoading(true);
     for (const id of eligible) { await fetch(`/api/invoices/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "paid" }) }); }
-    const updated = await fetch(`/api/invoices?clientId=${CLIENT_ID}`).then((r) => r.json());
+    const updated = await fetch(`/api/invoices`).then((r) => r.json());
     setInvoices(updated); setSelectedIds(new Set()); setBulkLoading(false);
   }
 
@@ -267,7 +274,7 @@ function ClientPortalContent() {
     setPaymentSending(true); setPaymentResult("");
     try {
       const res = await fetch(`/api/invoices/${paymentModal}/payments`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ amount, date: paymentForm.date, notes: paymentForm.notes }) });
-      if (res.ok) { setPaymentResult("Betaling geregistreerd!"); const updated = await fetch(`/api/invoices?clientId=${CLIENT_ID}`).then((r) => r.json()); setInvoices(updated); setTimeout(() => setPaymentModal(null), 1200); }
+      if (res.ok) { setPaymentResult("Betaling geregistreerd!"); const updated = await fetch(`/api/invoices`).then((r) => r.json()); setInvoices(updated); setTimeout(() => setPaymentModal(null), 1200); }
       else { try { const d = await res.json(); setPaymentResult(d.error || "Mislukt"); } catch { setPaymentResult("Mislukt"); } }
     } finally { setPaymentSending(false); }
   }
@@ -286,7 +293,7 @@ function ClientPortalContent() {
     try {
       const endpoint = emailModal.type === "send" ? `/api/invoices/${emailModal.invoiceId}/send` : `/api/invoices/${emailModal.invoiceId}/remind`;
       const res = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(emailForm) });
-      if (res.ok) { setEmailResult("E-mail succesvol verzonden!"); if (emailModal.type === "send") { const updated = await fetch(`/api/invoices?clientId=${CLIENT_ID}`).then((r) => r.json()); setInvoices(updated); } setTimeout(() => setEmailModal(null), 1500); }
+      if (res.ok) { setEmailResult("E-mail succesvol verzonden!"); if (emailModal.type === "send") { const updated = await fetch(`/api/invoices`).then((r) => r.json()); setInvoices(updated); } setTimeout(() => setEmailModal(null), 1500); }
       else { try { const data = await res.json(); setEmailResult(data.error || "Verzenden mislukt"); } catch { setEmailResult("Verzenden mislukt"); } }
     } finally { setEmailSending(false); }
   }

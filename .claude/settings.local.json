@@ -60,7 +60,23 @@
       "Bash(ssh root@65.21.107.54 'cd /var/www/boekhouder && git pull && npm install && npx prisma generate && npx prisma db push && npm run build && pm2 restart boekhouder')",
       "Bash(ssh root@65.21.107.54 \"cd /var/www/boekhouder && git pull && npm install && npx prisma generate && npx prisma db push --skip-generate && npm run build && pm2 restart boekhouder\")",
       "Bash(ssh root@65.21.107.54 \"cd /var/www/boekhouder && npx prisma db push && npm run build && pm2 restart boekhouder\")",
-      "Bash(ssh root@65.21.107.54 \"cd /var/www/boekhouder && git pull && npm install && npx prisma generate && npx prisma db push && npm run build && pm2 restart boekhouder\")"
+      "Bash(ssh root@65.21.107.54 \"cd /var/www/boekhouder && git pull && npm install && npx prisma generate && npx prisma db push && npm run build && pm2 restart boekhouder\")",
+      "Bash(git stash *)",
+      "Bash(npx tsc *)",
+      "Bash(npx eslint *)",
+      "Bash(wait)",
+      "Bash(gh pr create --base main --title 'Refine Boeken workflow + anchor sidebar module popups' --body ' *)",
+      "Bash(git fetch *)",
+      "Bash(git checkout *)",
+      "Bash(git merge *)",
+      "Bash(gh run *)",
+      "Bash(gh api *)",
+      "Bash(ssh root@65.21.107.54 \"sleep 4 && curl -sS -o /dev/null -w 'HTTP %{http_code} | time %{time_total}s\\\\n' http://localhost:3000/login && pm2 list | grep boekhouder | head -3\")",
+      "Bash(ssh root@65.21.107.54 \"sleep 3 && curl -sS -o /dev/null -w 'HTTP %{http_code} | %{time_total}s\\\\n' http://localhost:3000/login\")",
+      "Bash(ssh root@65.21.107.54 \"sleep 2 && curl -sS -o /dev/null -w 'HTTP %{http_code} | %{time_total}s\\\\n' http://localhost:3000/login\")",
+      "Bash(continue)",
+      "Bash(perl -i -pe 's/\\\\{section === \"__TRACKED_VAR__\" && \\\\\\(/\\\\{section === \"__TRACKED_VAR__\" && activeAdminId && \\(/' src/app/bookkeeper/page.tsx)",
+      "Bash(perl -i -pe 's/\\\\{section === \"__TRACKED_VAR__\" && \\\\\\(\\\\\\(\\\\\\) => \\\\{/\\\\{section === \"__TRACKED_VAR__\" && activeAdminId && \\(\\(\\) => \\\\{/' src/app/bookkeeper/page.tsx)"
     ]
   }
 }

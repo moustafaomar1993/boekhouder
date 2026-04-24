@@ -98,7 +98,17 @@ function groupByDate(notifications: Notification[]): { label: string; items: Not
   return groups;
 }
 
-export default function NotificationBell({ variant = "dark" }: { variant?: "dark" | "light" }) {
+export default function NotificationBell({
+  variant = "dark",
+  administrationId = null,
+}: {
+  variant?: "dark" | "light";
+  // When set (accountant portal with an active administration), the bell
+  // fetches only notifications belonging to that administration. When
+  // null/undefined (customer portal), it just scopes to the session user —
+  // no cross-tenant leakage either way.
+  administrationId?: string | null;
+}) {
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -112,13 +122,23 @@ export default function NotificationBell({ variant = "dark" }: { variant?: "dark
 
   const fetchNotifications = useCallback(async () => {
     try {
-      const res = await fetch("/api/notifications?limit=50");
+      const url = administrationId
+        ? `/api/notifications?limit=50&clientId=${encodeURIComponent(administrationId)}`
+        : "/api/notifications?limit=50";
+      const res = await fetch(url);
       if (!res.ok) return;
       const data = await res.json();
       setNotifications(data.notifications || []);
       setUnreadCount(data.unreadCount || 0);
     } catch { /* silent */ }
-  }, []);
+  }, [administrationId]);
+
+  // Clear visible notifications immediately when administration switches
+  // so the UI never shows stale data from the previous administration.
+  useEffect(() => {
+    setNotifications([]);
+    setUnreadCount(0);
+  }, [administrationId]);
 
   // Initial fetch + polling every 30s
   useEffect(() => {
