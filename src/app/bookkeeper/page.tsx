@@ -1327,21 +1327,33 @@ function BookkeeperContent() {
 
             {/* ─── BOEKEN TAB ─── */}
             {verkoopTab === "boeken" && (() => {
-              // Build client-level data for customer tiles
+              // Build client-level data for customer tiles. IMPORTANT: we list
+              // every bookkeeping client (role === "client") — including ones
+              // that have no invoices yet — so a relation created in the
+              // customer portal shows up here immediately as a tile, even
+              // before its first invoice arrives. Previously this list filtered
+              // on `clientInvoiceMap.has(c.id)`, which hid brand-new clients
+              // until they booked something.
               const clientInvoiceMap = new Map<string, Invoice[]>();
               invoices.forEach((inv) => { const arr = clientInvoiceMap.get(inv.clientId) || []; arr.push(inv); clientInvoiceMap.set(inv.clientId, arr); });
 
               const clientTiles = clients
-                .filter((c) => c.role === "client" && clientInvoiceMap.has(c.id))
+                .filter((c) => c.role === "client")
                 .map((c) => {
                   const invs = clientInvoiceMap.get(c.id) || [];
                   const openCount = invs.filter((i) => i.bookkeepingStatus === "pending" || i.bookkeepingStatus === "to_book").length;
                   const bookedCt = invs.filter((i) => i.bookkeepingStatus === "booked" || i.bookkeepingStatus === "processed").length;
-                  const progress = invs.length > 0 ? Math.round((bookedCt / invs.length) * 100) : 100;
+                  // Newly created relations with no invoices yet sit at 0% — a
+                  // neutral default that keeps them in the overview without
+                  // pretending they're "fully booked".
+                  const progress = invs.length > 0 ? Math.round((bookedCt / invs.length) * 100) : 0;
                   const amount = invs.reduce((s, i) => s + i.total, 0);
-                  return { id: c.id, name: c.company || c.name, total: invs.length, open: openCount, booked: bookedCt, progress, amount };
+                  const hasActivity = invs.length > 0;
+                  return { id: c.id, name: c.company || c.name, total: invs.length, open: openCount, booked: bookedCt, progress, amount, hasActivity };
                 })
-                .sort((a, b) => b.open - a.open || a.name.localeCompare(b.name));
+                // Sort: open work first, then relations with any activity, then
+                // brand-new empty relations last — but they still appear.
+                .sort((a, b) => (b.open - a.open) || (Number(b.hasActivity) - Number(a.hasActivity)) || a.name.localeCompare(b.name));
 
               const vTotalOpen = clientTiles.reduce((s, c) => s + c.open, 0);
               const vTotalBooked = clientTiles.reduce((s, c) => s + c.booked, 0);
