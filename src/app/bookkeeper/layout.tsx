@@ -117,15 +117,28 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
     return () => { document.body.style.overflow = ""; };
   }, [mobileMenuOpen]);
 
-  // Fetch sidebar badge counts + lists used by the per-module hover popups
+  // Fetch sidebar badge counts + popup lists. These are MODULE-LEVEL
+  // notifications — strictly scoped to the currently active administration
+  // (spec §2/§6/§7). The global cross-admin feed lives in the top-right
+  // NotificationBell, not here.
   useEffect(() => {
-    // Verkoop + Boekingen
-    fetch("/api/invoices").then((r) => r.ok ? r.json() : []).then((invs: { id: string; invoiceNumber: string; customerName: string; total: number; bookkeepingStatus: string; status: string; dueDate: string; date: string }[]) => {
-      if (!Array.isArray(invs)) return;
+    const adminId = activeAdministration ? activeAdministration.id : null;
+    // No administration selected → blank counts. Better to show nothing
+    // than leak data from another admin (spec §10).
+    if (!adminId) {
+      setSidebarCounts({ toProcess: 0, overdue: 0, inkoopNew: 0, boekingenNew: 0, boekingenOldQ: 0 });
+      setOpenInvoices([]);
+      setOpenPurchases([]);
+      setOldQuarterBookings([]);
+      return;
+    }
+    // Verkoop + Boekingen (sales invoices only for the active admin)
+    fetch("/api/invoices").then((r) => r.ok ? r.json() : []).then((raw: { id: string; invoiceNumber: string; customerName: string; total: number; bookkeepingStatus: string; status: string; dueDate: string; date: string; clientId: string }[]) => {
+      if (!Array.isArray(raw)) return;
+      const invs = raw.filter((i) => i.clientId === adminId);
       const toProcess = invs.filter((i) => i.bookkeepingStatus === "pending" || i.bookkeepingStatus === "to_book").length;
       const now = new Date();
       const overdue = invs.filter((i) => (i.status === "sent" || i.status === "overdue") && new Date(i.dueDate) < now).length;
-      // Boekingen badges: new booked + older quarter
       const booked = invs.filter((i) => i.bookkeepingStatus === "booked");
       const currentQ = Math.floor(now.getMonth() / 3);
       const currentY = now.getFullYear();
@@ -147,9 +160,10 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
         .map((i) => ({ id: i.id, invoiceNumber: i.invoiceNumber, customerName: i.customerName, total: i.total, date: i.date }));
       setOldQuarterBookings(oldList);
     }).catch(() => {});
-    // Inkoop
-    fetch("/api/purchases/all").then((r) => r.ok ? r.json() : []).then((docs: { id: string; fileName: string; supplierName: string | null; amount: number | null; totalAmount: number | null; status: string; createdAt?: string }[]) => {
-      if (!Array.isArray(docs)) return;
+    // Inkoop (purchase documents only for the active admin)
+    fetch("/api/purchases/all").then((r) => r.ok ? r.json() : []).then((raw: { id: string; fileName: string; supplierName: string | null; amount: number | null; totalAmount: number | null; status: string; createdAt?: string; userId: string }[]) => {
+      if (!Array.isArray(raw)) return;
+      const docs = raw.filter((d) => d.userId === adminId);
       const pending = docs.filter((d) => d.status === "uploaded");
       setSidebarCounts(prev => ({ ...prev, inkoopNew: pending.length }));
       const list = pending
@@ -158,7 +172,7 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
         .map((d) => ({ id: d.id, fileName: d.fileName, supplierName: d.supplierName, amount: d.amount, totalAmount: d.totalAmount, status: d.status }));
       setOpenPurchases(list);
     }).catch(() => {});
-  }, []);
+  }, [activeAdministration]);
 
   // Open the hover popup for a given sidebar module.
   //   - vertical: top edge of the popup == top edge of the active module button
@@ -479,7 +493,7 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
               </div>
             )}
           </div>
-          <NotificationBell variant="light" administrationId={activeAdministration ? activeAdministration.id : null} />
+          <NotificationBell variant="light" />
         </div>
       </div>
 
@@ -497,7 +511,7 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
             </Link>
           )}
           <div className="flex items-center gap-1 shrink-0">
-            <NotificationBell administrationId={activeAdministration ? activeAdministration.id : null} />
+            <NotificationBell />
             <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="p-2 rounded-lg text-white/70 hover:bg-white/10 transition-colors"
               aria-label={mobileMenuOpen ? "Menu sluiten" : "Menu openen"}>

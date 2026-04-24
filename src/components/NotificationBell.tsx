@@ -17,6 +17,10 @@ interface Notification {
   sourceId: string | null;
   readAt: string | null;
   createdAt: string;
+  // Server-enriched for staff callers: which administration this
+  // notification belongs to. null when the source can't be linked to
+  // one specific administration (e.g. system notifications).
+  administration?: { id: string; company: string | null; name: string } | null;
 }
 
 const CATEGORY_ICONS: Record<string, { icon: React.ReactNode; bg: string; text: string }> = {
@@ -100,15 +104,13 @@ function groupByDate(notifications: Notification[]): { label: string; items: Not
 
 export default function NotificationBell({
   variant = "dark",
-  administrationId = null,
 }: {
   variant?: "dark" | "light";
-  // When set (accountant portal with an active administration), the bell
-  // fetches only notifications belonging to that administration. When
-  // null/undefined (customer portal), it just scopes to the session user —
-  // no cross-tenant leakage either way.
-  administrationId?: string | null;
 }) {
+  // The bell is the GLOBAL accountant-wide feed — all administrations,
+  // each item labeled with its source administration (spec §3/§4).
+  // Per-module badges / popups live in the sidebar and are scoped to the
+  // active administration separately, so there is no cross-layer mixing.
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -122,23 +124,13 @@ export default function NotificationBell({
 
   const fetchNotifications = useCallback(async () => {
     try {
-      const url = administrationId
-        ? `/api/notifications?limit=50&clientId=${encodeURIComponent(administrationId)}`
-        : "/api/notifications?limit=50";
-      const res = await fetch(url);
+      const res = await fetch("/api/notifications?limit=50");
       if (!res.ok) return;
       const data = await res.json();
       setNotifications(data.notifications || []);
       setUnreadCount(data.unreadCount || 0);
     } catch { /* silent */ }
-  }, [administrationId]);
-
-  // Clear visible notifications immediately when administration switches
-  // so the UI never shows stale data from the previous administration.
-  useEffect(() => {
-    setNotifications([]);
-    setUnreadCount(0);
-  }, [administrationId]);
+  }, []);
 
   // Initial fetch + polling every 30s
   useEffect(() => {
@@ -315,6 +307,14 @@ export default function NotificationBell({
                                 )}
                               </div>
                             </div>
+                            {/* Administration label — so the accountant always
+                                knows which administration triggered this
+                                notification (spec §4). */}
+                            {n.administration && (
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-[#00AFCB] mt-0.5 truncate">
+                                {n.administration.company || n.administration.name}
+                              </p>
+                            )}
                             <p className="text-xs text-gray-500 mt-0.5 leading-relaxed line-clamp-2">{n.message}</p>
                             {n.actionUrl && n.actionLabel && (
                               <span className="inline-block mt-1 text-[11px] font-medium text-[#00AFCB] opacity-0 group-hover:opacity-100 transition-opacity">

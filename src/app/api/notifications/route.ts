@@ -2,15 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 
-// Previously this route read the wrong cookie name ("session" instead of
-// "boekhouder_session"), which silently returned 401 for every logged-in
-// user. It now uses the shared getSession() so cookie handling matches the
-// rest of the app.
+// The accountant-wide (top-right) notification center is global: one feed
+// across every administration, with each item labeled by the administration
+// it belongs to (spec §3/§4).
 //
-// Scoping: when the caller is a bookkeeper/admin, an optional ?clientId=
-// narrows the feed to notifications FOR that administration. That's the
-// filter the accountant portal uses when the active administration changes.
-// Customer-portal users always see only their own notifications.
+// Per-module notifications (sidebar badges / hover popups) are NOT served
+// by this route — they're computed client-side in bookkeeper/layout.tsx
+// from the already-scoped invoice/purchase collections.
 export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -22,30 +20,9 @@ export async function GET(request: NextRequest) {
   const unreadOnly = searchParams.get("unread") === "true";
   const limit = parseInt(searchParams.get("limit") || "50", 10);
   const offset = parseInt(searchParams.get("offset") || "0", 10);
-  const clientIdFilter = searchParams.get("clientId");
 
-  // Base user scope: the recipient is always the session user. Notifications
-  // are addressed to a specific person (customer or bookkeeper), not a
-  // company, so we filter on userId.
-  //
-  // Administration scoping (staff only): each notification row stores the
-  // source administration via its `sourceId` / `metadata` when relevant.
-  // We currently don't have a dedicated adminId column, so for staff
-  // callers we narrow by matching the source invoice/doc to the
-  // requested clientId when clientIdFilter is set. For non-staff this
-  // parameter is ignored — customers only see their own notifications.
   const where: Record<string, unknown> = { userId: me.id };
   if (unreadOnly) where.isRead = false;
-
-  if (isStaff && clientIdFilter) {
-    // Limit to notifications whose source entity belongs to that client.
-    // This intentionally uses metadata + sourceType so we don't need a
-    // schema migration just for admin-scoping.
-    where.OR = [
-      { metadata: { contains: `"clientId":"${clientIdFilter}"` } },
-      { sourceId: clientIdFilter },
-    ];
-  }
 
   const [notifications, total, unreadCount] = await Promise.all([
     prisma.notification.findMany({
@@ -57,6 +34,34 @@ export async function GET(request: NextRequest) {
     prisma.notification.count({ where }),
     prisma.notification.count({ where: { ...where, isRead: false } }),
   ]);
+
+  // Staff-only enrichment: attach the source administration to each
+  // notification so the global bell can render "Demo BV — Factuur geboekt"
+  // without every bookkeeper having to reconstruct the link client-side.
+  if (isStaff && notifications.length > 0) {
+    const invoiceIds = notifications.filter((n) => n.sourceType === "invoice" && n.sourceId).map((n) => n.sourceId as string);
+    const purchaseIds = notifications.filter((n) => n.sourceType === "purchase_doc" && n.sourceId).map((n) => n.sourceId as string);
+
+    const [invoices, purchases] = await Promise.all([
+      invoiceIds.length > 0
+        ? prisma.invoice.findMany({ where: { id: { in: invoiceIds } }, select: { id: true, clientId: true, client: { select: { id: true, company: true, name: true } } } })
+        : Promise.resolve([]),
+      purchaseIds.length > 0
+        ? prisma.purchaseDocument.findMany({ where: { id: { in: purchaseIds } }, select: { id: true, userId: true, user: { select: { id: true, company: true, name: true } } } })
+        : Promise.resolve([]),
+    ]);
+
+    const invById = new Map(invoices.map((i) => [i.id, i.client]));
+    const purById = new Map(purchases.map((p) => [p.id, p.user]));
+
+    const enriched = notifications.map((n) => {
+      let admin: { id: string; company: string | null; name: string } | null = null;
+      if (n.sourceType === "invoice" && n.sourceId) admin = invById.get(n.sourceId) || null;
+      else if (n.sourceType === "purchase_doc" && n.sourceId) admin = purById.get(n.sourceId) || null;
+      return { ...n, administration: admin };
+    });
+    return NextResponse.json({ notifications: enriched, total, unreadCount });
+  }
 
   return NextResponse.json({ notifications, total, unreadCount });
 }
