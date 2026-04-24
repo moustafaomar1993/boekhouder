@@ -8,6 +8,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import NotificationBell from "@/components/NotificationBell";
 import { ToastProvider } from "@/components/ToastProvider";
 import { AdministrationProvider, useAdministration } from "@/components/AdministrationProvider";
+import { TopDock, type TopDockItem } from "@/components/TopDock";
 
 const sidebarItems = [
   { key: "administraties", label: "Administraties", href: "/bookkeeper?section=administraties", icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg> },
@@ -65,11 +66,6 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
   const adminMenuRef = useRef<HTMLDivElement>(null);
   const lastRefresh = useRef(0);
-  // Dock magnification state — tracks the cursor's X position within the
-  // top nav so each icon can compute its own distance-based scale. Null
-  // means the cursor isn't over the dock → icons are at rest.
-  const [dockMouseX, setDockMouseX] = useState<number | null>(null);
-  const [dockHoveredKey, setDockHoveredKey] = useState<string | null>(null);
   const [sidebarCounts, setSidebarCounts] = useState<{ toProcess: number; overdue: number; inkoopNew: number; boekingenNew: number; boekingenOldQ: number }>({ toProcess: 0, overdue: 0, inkoopNew: 0, boekingenNew: 0, boekingenOldQ: 0 });
   // Generic per-module hover popup state. `hoveredModule` identifies which sidebar
   // module the popup belongs to; `modulePopupPos` is derived from that module's
@@ -212,10 +208,10 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
   // Open the hover popup for a module icon in the top dock.
   //   - vertical:   drops below the icon (8px gap)
   //   - horizontal: centered under the icon, clamped to stay in the viewport
-  // If the ref is missing or has a zero rect, we bail out instead of guessing.
+  // Finds the dock item by data attribute — no ref plumbing from TopDock.
   function openModulePopup(moduleKey: string) {
     if (moduleHoverTimeout.current) { clearTimeout(moduleHoverTimeout.current); moduleHoverTimeout.current = null; }
-    const el = moduleLinkRefs.current[moduleKey];
+    const el = typeof document !== "undefined" ? document.querySelector(`[data-dock-item="${moduleKey}"]`) as HTMLElement | null : null;
     if (!el) return;
     const btnRect = el.getBoundingClientRect();
     if (btnRect.height === 0 || btnRect.width === 0) return;
@@ -469,27 +465,6 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
 
   const currentTitle = sectionTitles[activeSection] || "";
 
-  // ═══════════════════════════════════════════════════════════════════════
-  // Dock magnification — macOS-inspired smooth-scale interaction
-  // ═══════════════════════════════════════════════════════════════════════
-  // Each icon's scale is derived from its horizontal distance to the cursor.
-  // Cosine-based falloff (smoothstep) gives a soft, premium feel instead of
-  // abrupt linear scaling. When the cursor leaves the dock entirely we drop
-  // back to 1× with a gentle ease-out transition.
-  const DOCK_RANGE = 110; // px radius of the magnification effect
-  const DOCK_MAX_SCALE = 1.5;
-  function computeDockScale(iconEl: HTMLElement | null): number {
-    if (dockMouseX === null || !iconEl) return 1;
-    const r = iconEl.getBoundingClientRect();
-    if (r.width === 0) return 1;
-    const center = r.left + r.width / 2;
-    const distance = Math.abs(center - dockMouseX);
-    if (distance > DOCK_RANGE) return 1;
-    const t = 1 - distance / DOCK_RANGE;
-    const smooth = 0.5 - 0.5 * Math.cos(t * Math.PI);
-    return 1 + (DOCK_MAX_SCALE - 1) * smooth;
-  }
-
   async function handleLogout() {
     setMobileMenuOpen(false);
     await fetch("/api/auth/logout", { method: "POST" });
@@ -560,113 +535,83 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* CENTER — dock */}
-        <div className="flex-1 flex justify-center min-w-0">
-          <div
-            onMouseMove={(e) => setDockMouseX(e.clientX)}
-            onMouseLeave={() => { setDockMouseX(null); setDockHoveredKey(null); }}
-            className="flex items-end gap-1 px-2.5 py-1.5 rounded-2xl bg-black/20 backdrop-blur-sm border border-white/[0.06] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)] max-w-full overflow-x-auto overflow-y-visible [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          >
-            {sidebarItems.map((item) => {
-              const isActive = activeSection === item.key;
-              const colors = MODULE_COLORS[item.key] || "from-slate-500 to-slate-600";
-              const el = moduleLinkRefs.current[item.key] || null;
-              const scale = computeDockScale(el);
-              const isHovered = dockHoveredKey === item.key;
-              return (
-                <div key={item.key}
-                  ref={(el) => { moduleLinkRefs.current[item.key] = el; }}
-                  className="relative shrink-0"
-                  style={{
-                    transform: `scale(${scale})`,
-                    transformOrigin: "center bottom",
-                    transition: dockMouseX === null
-                      ? "transform 260ms cubic-bezier(0.22, 1, 0.36, 1)"
-                      : "transform 80ms linear",
-                    willChange: "transform",
-                  }}
-                >
-                  {/* Tooltip above the hovered icon, macOS-dock-style */}
-                  {isHovered && (
-                    <span className="absolute left-1/2 -translate-x-1/2 bottom-[calc(100%+6px)] px-2 py-1 bg-black/80 text-white text-[11px] font-medium rounded-md whitespace-nowrap pointer-events-none backdrop-blur-sm shadow-lg">
-                      {item.label}
-                    </span>
-                  )}
-                  <Link href={item.href}
-                    onClick={() => {
-                      if (item.key === "verkoop" && typeof window !== "undefined") {
-                        window.dispatchEvent(new CustomEvent("bookkeeper:verkoop:reset"));
-                      }
-                    }}
-                    onMouseEnter={() => setDockHoveredKey(item.key)}
-                    onMouseLeave={() => setDockHoveredKey(null)}
-                    title={item.label}
-                    className={`relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br ${colors} shadow-[0_2px_8px_rgba(0,0,0,0.25)] text-white ${isActive ? "ring-2 ring-white/40" : "ring-0"}`}
-                  >
-                    <span className="w-[18px] h-[18px] [&>svg]:w-[18px] [&>svg]:h-[18px] flex">{item.icon}</span>
-                    {/* Soft top-gloss like a real app icon */}
-                    <span className="pointer-events-none absolute inset-0 rounded-xl bg-gradient-to-b from-white/20 to-transparent opacity-60" />
-                  </Link>
-
-                  {/* Active indicator — running-app dot */}
-                  {isActive && <span className="absolute left-1/2 -translate-x-1/2 -bottom-1.5 w-1 h-1 rounded-full bg-white/90 shadow-[0_0_6px_rgba(255,255,255,0.6)]" />}
-
-                  {/* Module-specific notification badges (hover → popup).
-                      Click-through + badge-specific popup content unchanged. */}
-                  {item.key === "verkoop" && (sidebarCounts.toProcess > 0 || sidebarCounts.overdue > 0) && (
-                    <span className="absolute -top-1.5 -right-1.5 flex items-center gap-0.5">
-                      {sidebarCounts.toProcess > 0 && (
-                        <span role="button" tabIndex={0}
-                          onMouseEnter={() => { setPopupIntent("toBook"); openModulePopup("verkoop"); }}
-                          onMouseLeave={scheduleCloseModulePopup}
-                          onClick={shortcutNav("/bookkeeper?section=verkoop&tab=boeken&filter=to_book")}
-                          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") shortcutNav("/bookkeeper?section=verkoop&tab=boeken&filter=to_book")(e as unknown as React.MouseEvent); }}
-                          title="Nieuwe / te boeken verkoopfacturen"
-                          className="min-w-[16px] h-4 flex items-center justify-center rounded-full bg-blue-500 ring-2 ring-[#004854] text-[9px] font-bold text-white leading-none px-1 hover:bg-blue-400 cursor-pointer">
-                          {sidebarCounts.toProcess}
-                        </span>
-                      )}
-                      {sidebarCounts.overdue > 0 && (
-                        <span role="button" tabIndex={0}
-                          onMouseEnter={() => { setPopupIntent("overdue"); openModulePopup("verkoop"); }}
-                          onMouseLeave={scheduleCloseModulePopup}
-                          onClick={shortcutNav("/bookkeeper?section=verkoop&tab=debiteurenbeheer&filter=overdue")}
-                          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") shortcutNav("/bookkeeper?section=verkoop&tab=debiteurenbeheer&filter=overdue")(e as unknown as React.MouseEvent); }}
-                          title="Verlopen debiteurenfacturen"
-                          className="min-w-[16px] h-4 flex items-center justify-center rounded-full bg-red-500 ring-2 ring-[#004854] text-[9px] font-bold text-white leading-none px-1 hover:bg-red-400 cursor-pointer">
-                          {sidebarCounts.overdue}
-                        </span>
-                      )}
-                    </span>
-                  )}
-                  {item.key === "inkoop" && sidebarCounts.inkoopNew > 0 && (
-                    <span
-                      onMouseEnter={() => { setPopupIntent(null); openModulePopup("inkoop"); }}
-                      onMouseLeave={scheduleCloseModulePopup}
-                      title="Nieuw geüploade inkoopdocumenten"
-                      className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-blue-500 ring-2 ring-[#004854] text-[9px] font-bold text-white leading-none px-1 cursor-pointer hover:bg-blue-400">{sidebarCounts.inkoopNew}</span>
-                  )}
-                  {item.key === "boekingen" && (sidebarCounts.boekingenNew > 0 || sidebarCounts.boekingenOldQ > 0) && (
-                    <span className="absolute -top-1.5 -right-1.5 flex items-center gap-0.5">
-                      {sidebarCounts.boekingenNew > 0 && (
-                        <span
-                          onMouseEnter={() => { setPopupIntent(null); openModulePopup("boekingen"); }}
-                          onMouseLeave={scheduleCloseModulePopup}
-                          title="Geboekt"
-                          className="min-w-[16px] h-4 flex items-center justify-center rounded-full bg-blue-500 ring-2 ring-[#004854] text-[9px] font-bold text-white leading-none px-1 cursor-pointer hover:bg-blue-400">{sidebarCounts.boekingenNew}</span>
-                      )}
-                      {sidebarCounts.boekingenOldQ > 0 && (
-                        <span
-                          onMouseEnter={() => { setPopupIntent(null); openModulePopup("boekingen"); }}
-                          onMouseLeave={scheduleCloseModulePopup}
-                          title="Ouder kwartaal — verwerk voor BTW-aangifte"
-                          className="min-w-[16px] h-4 flex items-center justify-center rounded-full bg-red-500 ring-2 ring-[#004854] text-[9px] font-bold text-white leading-none px-1 cursor-pointer hover:bg-red-400">{sidebarCounts.boekingenOldQ}</span>
-                      )}
-                    </span>
-                  )}
-                </div>
-              );
+        <div className="flex-1 flex justify-center min-w-0 overflow-x-auto no-scrollbar">
+          <TopDock
+            activeKey={activeSection}
+            items={sidebarItems.map<TopDockItem>((item) => {
+              const gradient = MODULE_COLORS[item.key] || "from-slate-500 to-slate-600";
+              // Per-module notification badge. The badge stays its own
+              // hover target so popups only open when the accountant
+              // hovers the badge itself — not the icon.
+              let badge: React.ReactNode = null;
+              if (item.key === "verkoop" && (sidebarCounts.toProcess > 0 || sidebarCounts.overdue > 0)) {
+                badge = (
+                  <span className="flex items-center gap-0.5">
+                    {sidebarCounts.toProcess > 0 && (
+                      <span role="button" tabIndex={0}
+                        onMouseEnter={() => { setPopupIntent("toBook"); openModulePopup("verkoop"); }}
+                        onMouseLeave={scheduleCloseModulePopup}
+                        onClick={shortcutNav("/bookkeeper?section=verkoop&tab=boeken&filter=to_book")}
+                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") shortcutNav("/bookkeeper?section=verkoop&tab=boeken&filter=to_book")(e as unknown as React.MouseEvent); }}
+                        aria-label="Nieuwe / te boeken verkoopfacturen"
+                        className="min-w-[17px] h-[17px] flex items-center justify-center rounded-full bg-blue-500 ring-2 ring-[#003942] text-[9px] font-bold text-white leading-none px-1 hover:bg-blue-400 cursor-pointer">
+                        {sidebarCounts.toProcess}
+                      </span>
+                    )}
+                    {sidebarCounts.overdue > 0 && (
+                      <span role="button" tabIndex={0}
+                        onMouseEnter={() => { setPopupIntent("overdue"); openModulePopup("verkoop"); }}
+                        onMouseLeave={scheduleCloseModulePopup}
+                        onClick={shortcutNav("/bookkeeper?section=verkoop&tab=debiteurenbeheer&filter=overdue")}
+                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") shortcutNav("/bookkeeper?section=verkoop&tab=debiteurenbeheer&filter=overdue")(e as unknown as React.MouseEvent); }}
+                        aria-label="Verlopen debiteurenfacturen"
+                        className="min-w-[17px] h-[17px] flex items-center justify-center rounded-full bg-red-500 ring-2 ring-[#003942] text-[9px] font-bold text-white leading-none px-1 hover:bg-red-400 cursor-pointer">
+                        {sidebarCounts.overdue}
+                      </span>
+                    )}
+                  </span>
+                );
+              } else if (item.key === "inkoop" && sidebarCounts.inkoopNew > 0) {
+                badge = (
+                  <span
+                    onMouseEnter={() => { setPopupIntent(null); openModulePopup("inkoop"); }}
+                    onMouseLeave={scheduleCloseModulePopup}
+                    aria-label="Nieuw geüploade inkoopdocumenten"
+                    className="min-w-[17px] h-[17px] flex items-center justify-center rounded-full bg-blue-500 ring-2 ring-[#003942] text-[9px] font-bold text-white leading-none px-1 cursor-pointer hover:bg-blue-400">{sidebarCounts.inkoopNew}</span>
+                );
+              } else if (item.key === "boekingen" && (sidebarCounts.boekingenNew > 0 || sidebarCounts.boekingenOldQ > 0)) {
+                badge = (
+                  <span className="flex items-center gap-0.5">
+                    {sidebarCounts.boekingenNew > 0 && (
+                      <span
+                        onMouseEnter={() => { setPopupIntent(null); openModulePopup("boekingen"); }}
+                        onMouseLeave={scheduleCloseModulePopup}
+                        aria-label="Geboekt"
+                        className="min-w-[17px] h-[17px] flex items-center justify-center rounded-full bg-blue-500 ring-2 ring-[#003942] text-[9px] font-bold text-white leading-none px-1 cursor-pointer hover:bg-blue-400">{sidebarCounts.boekingenNew}</span>
+                    )}
+                    {sidebarCounts.boekingenOldQ > 0 && (
+                      <span
+                        onMouseEnter={() => { setPopupIntent(null); openModulePopup("boekingen"); }}
+                        onMouseLeave={scheduleCloseModulePopup}
+                        aria-label="Ouder kwartaal — verwerk voor BTW-aangifte"
+                        className="min-w-[17px] h-[17px] flex items-center justify-center rounded-full bg-red-500 ring-2 ring-[#003942] text-[9px] font-bold text-white leading-none px-1 cursor-pointer hover:bg-red-400">{sidebarCounts.boekingenOldQ}</span>
+                    )}
+                  </span>
+                );
+              }
+              return {
+                key: item.key,
+                label: item.label,
+                href: item.href,
+                icon: item.icon,
+                gradient,
+                badge,
+                onSelect: item.key === "verkoop"
+                  ? () => { if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("bookkeeper:verkoop:reset")); }
+                  : undefined,
+              };
             })}
-          </div>
+          />
         </div>
 
         {/* RIGHT — notification bell + section title + logout */}

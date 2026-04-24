@@ -21,6 +21,12 @@
   --color-earth: #6F5C4B;
 }
 
+/* Hide scrollbars on elements that must remain horizontally scrollable
+   but look seamless (e.g. the top-dock overflow container on tight
+   desktop widths). */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
 /* Toast & notification animations */
 @keyframes slide-in-right {
   from { opacity: 0; transform: translateX(100%); }
