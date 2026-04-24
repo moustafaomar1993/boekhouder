@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef, Suspense } from "react";
+import { useState, useEffect, useRef, useMemo, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import type { Invoice, User } from "@/lib/data";
 import { useToast } from "@/components/ToastProvider";
+import { useAdministration } from "@/components/AdministrationProvider";
 
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(amount);
@@ -59,9 +60,11 @@ function BookkeeperContent() {
   const searchParams = useSearchParams();
   const section = searchParams.get("section") || "dashboard";
   const { addToast } = useToast();
+  const { activeAdministration, administrations, selectAdministration, loading: adminLoading } = useAdministration();
+  const activeAdminId = activeAdministration ? activeAdministration.id : null;
 
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [clients, setClients] = useState<User[]>([]);
+  const [allInvoices, setAllInvoices] = useState<Invoice[]>([]);
+  const [allClients, setAllClients] = useState<User[]>([]);
   const [filter, setFilter] = useState<string>("all");
   const [clientFilter, setClientFilter] = useState<string>("all");
   const [bookingLoading, setBookingLoading] = useState<string | null>(null);
@@ -128,7 +131,7 @@ function BookkeeperContent() {
     dueDate: string | null; bookedAt: string | null; createdAt: string; updatedAt: string;
     user: { id: string; name: string; company: string | null; email: string };
   }
-  const [purchaseDocs, setPurchaseDocs] = useState<PurchaseDoc[]>([]);
+  const [allPurchaseDocs, setAllPurchaseDocs] = useState<PurchaseDoc[]>([]);
   const [purchaseFilter, setPurchaseFilter] = useState("all");
   const [purchaseClientFilter, setPurchaseClientFilter] = useState("all");
 
@@ -139,7 +142,7 @@ function BookkeeperContent() {
     counterpartyAccount: string | null; status: string; importBatchId: string; createdAt: string;
     user: { id: string; name: string; company: string | null };
   }
-  const [bankTxs, setBankTxs] = useState<BankTx[]>([]);
+  const [allBankTxs, setAllBankTxs] = useState<BankTx[]>([]);
   const [bankFilter, setBankFilter] = useState("all");
   const [bankClientFilter, setBankClientFilter] = useState("all");
   const [bankImporting, setBankImporting] = useState(false);
@@ -157,7 +160,7 @@ function BookkeeperContent() {
     user: { id: string; name: string; company: string | null; email: string };
     createdBy: { id: string; name: string };
   }
-  const [exceptions, setExceptions] = useState<ExceptionItemData[]>([]);
+  const [allExceptions, setAllExceptions] = useState<ExceptionItemData[]>([]);
   const [showCreateException, setShowCreateException] = useState(false);
 
   // Accountant tasks (customer-assigned)
@@ -174,7 +177,7 @@ function BookkeeperContent() {
   // Accountant berichten
   interface AccConvo { id: string; userId: string; subject: string; lastMessage: string | null; lastAt: string; unreadByAccountant: boolean; user: { id: string; name: string; company: string | null } }
   interface AccMsg { id: string; senderRole: string; text: string; createdAt: string; sender: { id: string; name: string; role: string } }
-  const [accConvos, setAccConvos] = useState<AccConvo[]>([]);
+  const [allAccConvos, setAllAccConvos] = useState<AccConvo[]>([]);
   const [accActiveConvo, setAccActiveConvo] = useState<(AccConvo & { messages: AccMsg[] }) | null>(null);
   const [accMsgInput, setAccMsgInput] = useState("");
   const [accMsgSending, setAccMsgSending] = useState(false);
@@ -291,16 +294,44 @@ function BookkeeperContent() {
   const [purchaseActionLoading, setPurchaseActionLoading] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/invoices").then((r) => r.json()).then(setInvoices);
-    fetch("/api/clients").then((r) => r.json()).then(setClients);
-    fetch("/api/purchases/all").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setPurchaseDocs(d); }).catch(() => {});
-    fetch("/api/bank/transactions").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setBankTxs(d); }).catch(() => {});
-    fetch("/api/exceptions").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setExceptions(d); }).catch(() => {});
-    fetch("/api/conversations").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setAccConvos(d); }).catch(() => {});
+    fetch("/api/invoices").then((r) => r.json()).then(setAllInvoices);
+    fetch("/api/clients").then((r) => r.json()).then(setAllClients);
+    fetch("/api/purchases/all").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setAllPurchaseDocs(d); }).catch(() => {});
+    fetch("/api/bank/transactions").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setAllBankTxs(d); }).catch(() => {});
+    fetch("/api/exceptions").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setAllExceptions(d); }).catch(() => {});
+    fetch("/api/conversations").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setAllAccConvos(d); }).catch(() => {});
     fetch("/api/ledger-accounts").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setLedgerAccounts(d); }).catch(() => {});
     fetch("/api/vat-codes").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setVatCodes(d); }).catch(() => {});
     fetch("/api/journal-entries").then((r) => r.ok ? r.json() : []).then((d) => { if (Array.isArray(d)) setJournalEntries(d); }).catch(() => {});
   }, []);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Administration scoping
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Every module below operates on these scoped views. When an administration
+  // is active, each collection is narrowed to that administration's userId so
+  // no module ever renders cross-customer data. When no administration is
+  // active we keep the raw data available (e.g. for the administraties
+  // selector itself) but we also render a gate below that prevents the rest
+  // of the portal from showing anything meaningful without a selection.
+  const invoices = useMemo(() => (
+    activeAdminId ? allInvoices.filter((i) => i.clientId === activeAdminId) : allInvoices
+  ), [allInvoices, activeAdminId]);
+  const purchaseDocs = useMemo(() => (
+    activeAdminId ? allPurchaseDocs.filter((d) => d.userId === activeAdminId) : allPurchaseDocs
+  ), [allPurchaseDocs, activeAdminId]);
+  const bankTxs = useMemo(() => (
+    activeAdminId ? allBankTxs.filter((t) => t.userId === activeAdminId) : allBankTxs
+  ), [allBankTxs, activeAdminId]);
+  const exceptions = useMemo(() => (
+    activeAdminId ? allExceptions.filter((e) => e.userId === activeAdminId) : allExceptions
+  ), [allExceptions, activeAdminId]);
+  const accConvos = useMemo(() => (
+    activeAdminId ? allAccConvos.filter((c) => c.userId === activeAdminId) : allAccConvos
+  ), [allAccConvos, activeAdminId]);
+  const clients = useMemo(() => (
+    activeAdminId ? allClients.filter((c) => c.id === activeAdminId) : allClients
+  ), [allClients, activeAdminId]);
 
   // Clicking/entering Verkoop always returns to the Boeken customer overview
   useEffect(() => {
@@ -320,7 +351,7 @@ function BookkeeperContent() {
       });
       if (res.ok) {
         const inv = invoices.find(i => i.id === invoiceId);
-        setInvoices((prev) => prev.map((inv) => inv.id === invoiceId ? { ...inv, bookkeepingStatus: "booked", ...(category && { category }), ...(vatType && { vatType }) } : inv));
+        setAllInvoices((prev) => prev.map((inv) => inv.id === invoiceId ? { ...inv, bookkeepingStatus: "booked", ...(category && { category }), ...(vatType && { vatType }) } : inv));
         if (inv) addToast({ type: "bookkeeping", title: "Factuur geboekt", message: `${inv.invoiceNumber} - ${inv.customerName}` });
         setSessionBookedCount(prev => prev + 1);
         setTodayBookedCount(prev => prev + 1);
@@ -338,7 +369,7 @@ function BookkeeperContent() {
         body: JSON.stringify({ bookkeepingStatus: "to_book" }),
       });
       if (res.ok) {
-        setInvoices((prev) => prev.map((inv) => inv.id === invoiceId ? { ...inv, bookkeepingStatus: "to_book" } : inv));
+        setAllInvoices((prev) => prev.map((inv) => inv.id === invoiceId ? { ...inv, bookkeepingStatus: "to_book" } : inv));
       }
     } catch { /* */ }
     finally { setBookingLoading(null); }
@@ -526,7 +557,7 @@ function BookkeeperContent() {
 
       if (res.ok) {
         const bookedInv = invoices.find(i => i.id === bookModalInvoiceId);
-        setInvoices(prev => prev.map(inv =>
+        setAllInvoices(prev => prev.map(inv =>
           inv.id === bookModalInvoiceId
             ? { ...inv, bookkeepingStatus: "booked", ...(ledger && { category: ledger }), ...(vat && { vatType: vat }) }
             : inv
@@ -570,7 +601,7 @@ function BookkeeperContent() {
       });
       if (res.ok) {
         setReminderSent(true);
-        setInvoices(prev => prev.map(inv => inv.id === reminderInvoice.id ? { ...inv, remindersSent: (inv.remindersSent || 0) + 1 } : inv));
+        setAllInvoices(prev => prev.map(inv => inv.id === reminderInvoice.id ? { ...inv, remindersSent: (inv.remindersSent || 0) + 1 } : inv));
         addToast({ type: "success", title: "Herinnering verstuurd", message: `Betalingsherinnering verstuurd naar ${reminderTo}` });
       } else {
         addToast({ type: "error", title: "Verzenden mislukt", message: "De herinnering kon niet worden verstuurd" });
@@ -588,7 +619,7 @@ function BookkeeperContent() {
       });
       if (res.ok) {
         const updated = await res.json();
-        setPurchaseDocs((prev) => prev.map((d) => d.id === docId ? updated : d));
+        setAllPurchaseDocs((prev) => prev.map((d) => d.id === docId ? updated : d));
         if (purchaseViewDoc?.id === docId) setPurchaseViewDoc(updated);
       }
     } catch { /* */ }
@@ -628,7 +659,7 @@ function BookkeeperContent() {
       if (res.ok) {
         addToast({ type: "success", title: "Bank import geslaagd", message: data.message || "Transacties succesvol geimporteerd", actionUrl: "/bookkeeper?section=bank", actionLabel: "Bekijk transacties" });
         const txRes = await fetch("/api/bank/transactions");
-        if (txRes.ok) { const txs = await txRes.json(); if (Array.isArray(txs)) setBankTxs(txs); }
+        if (txRes.ok) { const txs = await txRes.json(); if (Array.isArray(txs)) setAllBankTxs(txs); }
       } else {
         addToast({ type: "error", title: "Bank import mislukt", message: data.error || "Import mislukt" });
       }
@@ -645,7 +676,7 @@ function BookkeeperContent() {
       });
       if (res.ok) {
         const updated = await res.json();
-        setBankTxs((prev) => prev.map((t) => t.id === txId ? updated : t));
+        setAllBankTxs((prev) => prev.map((t) => t.id === txId ? updated : t));
         if (bankViewTx?.id === txId) setBankViewTx(updated);
       }
     } catch { /* */ }
@@ -673,7 +704,7 @@ function BookkeeperContent() {
       });
       if (res.ok) {
         const item = await res.json();
-        setExceptions((prev) => [item, ...prev]);
+        setAllExceptions((prev) => [item, ...prev]);
         setShowCreateException(false);
         setExceptionForm({ userId: "", type: "missing_document", title: "", description: "", invoiceId: "", purchaseDocId: "", bankTransactionId: "" });
       }
@@ -688,7 +719,7 @@ function BookkeeperContent() {
     });
     if (res.ok) {
       const updated = await res.json();
-      setExceptions((prev) => prev.map((e) => e.id === id ? updated : e));
+      setAllExceptions((prev) => prev.map((e) => e.id === id ? updated : e));
     }
   }
 
@@ -720,7 +751,7 @@ function BookkeeperContent() {
       setTaskForm({ userId: "", title: "", description: "", date: new Date().toISOString().split("T")[0], time: "" });
       // Refresh exceptions
       const exRes = await fetch("/api/exceptions");
-      if (exRes.ok) { const d = await exRes.json(); if (Array.isArray(d)) setExceptions(d); }
+      if (exRes.ok) { const d = await exRes.json(); if (Array.isArray(d)) setAllExceptions(d); }
     } catch { /* */ }
     finally { setTaskSaving(false); }
   }
@@ -800,7 +831,7 @@ function BookkeeperContent() {
       if (res.ok) {
         const msg = await res.json();
         setAccActiveConvo((prev) => prev ? { ...prev, messages: [...prev.messages, msg] } : null);
-        setAccConvos((prev) => prev.map((c) => c.id === accActiveConvo.id ? { ...c, lastMessage: msg.text.substring(0, 100), lastAt: new Date().toISOString() } : c));
+        setAllAccConvos((prev) => prev.map((c) => c.id === accActiveConvo.id ? { ...c, lastMessage: msg.text.substring(0, 100), lastAt: new Date().toISOString() } : c));
         setAiDraft("");
       }
     } catch { /* */ }
@@ -818,7 +849,7 @@ function BookkeeperContent() {
     if (res.ok) {
       const data = await res.json();
       setAccActiveConvo(data);
-      setAccConvos((prev) => prev.map((c) => c.id === id ? { ...c, unreadByAccountant: false } : c));
+      setAllAccConvos((prev) => prev.map((c) => c.id === id ? { ...c, unreadByAccountant: false } : c));
     }
   }
 
@@ -833,7 +864,7 @@ function BookkeeperContent() {
       if (res.ok) {
         const msg = await res.json();
         setAccActiveConvo((prev) => prev ? { ...prev, messages: [...prev.messages, msg] } : null);
-        setAccConvos((prev) => prev.map((c) => c.id === accActiveConvo.id ? { ...c, lastMessage: msg.text.substring(0, 100), lastAt: new Date().toISOString() } : c));
+        setAllAccConvos((prev) => prev.map((c) => c.id === accActiveConvo.id ? { ...c, lastMessage: msg.text.substring(0, 100), lastAt: new Date().toISOString() } : c));
         setAccMsgInput("");
       }
     } catch { /* */ }
@@ -935,9 +966,9 @@ function BookkeeperContent() {
           fetch("/api/purchases/all").then((r) => r.ok ? r.json() : []),
           fetch("/api/bank/transactions").then((r) => r.ok ? r.json() : []),
         ]);
-        setInvoices(invRes);
-        if (Array.isArray(purchRes)) setPurchaseDocs(purchRes);
-        if (Array.isArray(txRes)) setBankTxs(txRes);
+        setAllInvoices(invRes);
+        if (Array.isArray(purchRes)) setAllPurchaseDocs(purchRes);
+        if (Array.isArray(txRes)) setAllBankTxs(txRes);
         setSelectedInvoiceIds(new Set());
         setSelectedPurchaseIds(new Set());
         setSelectedBankTxIds(new Set());
@@ -974,10 +1005,122 @@ function BookkeeperContent() {
     agenda: "Agenda", fiscaal: "BTW & Fiscaal", instellingen: "Instellingen",
   };
 
+  // Count workload signals per administration so the selector tiles can show
+  // a short status summary (e.g. "3 te boeken"). This uses the RAW collections
+  // because the selector lists every administration, not just the active one.
+  const adminSignals = administrations.map((adm) => {
+    const invs = allInvoices.filter((i) => i.clientId === adm.id);
+    const docs = allPurchaseDocs.filter((d) => d.userId === adm.id);
+    const toBook = invs.filter((i) => i.bookkeepingStatus === "pending" || i.bookkeepingStatus === "to_book").length
+      + docs.filter((d) => d.status === "uploaded").length;
+    const open = invs.filter((i) => i.status === "sent" || i.status === "overdue").length;
+    return { ...adm, toBook, open, invoiceCount: invs.length, docCount: docs.length };
+  });
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl">
+      {/* ═══ ADMINISTRATIES (selector) ═══ */}
+      {section === "administraties" && (
+        <div className="space-y-6">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-[#3C2C1E]">Administraties</h1>
+            <p className="text-sm text-[#6F5C4B]/70 mt-1">Kies een administratie om binnen die klant te werken. Alle schermen schakelen automatisch mee.</p>
+          </div>
+
+          {activeAdministration && (
+            <div className="bg-[#E6F9FC] border border-[#00AFCB]/30 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <span className="w-10 h-10 rounded-lg bg-[#004854] text-white font-bold flex items-center justify-center shrink-0">
+                  {(activeAdministration.company || activeAdministration.name).charAt(0).toUpperCase()}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-[10px] text-[#004854]/70 uppercase tracking-wider font-semibold">Actieve administratie</p>
+                  <p className="text-sm font-semibold text-[#004854] truncate">{activeAdministration.company || activeAdministration.name}</p>
+                  <p className="text-xs text-gray-500 truncate">{activeAdministration.email}</p>
+                </div>
+              </div>
+              <button onClick={() => selectAdministration(null)}
+                className="text-xs font-medium text-gray-600 hover:text-gray-800 px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50">
+                Actieve selectie wissen
+              </button>
+            </div>
+          )}
+
+          {adminLoading ? (
+            <div className="bg-white rounded-xl border border-gray-100 p-10 text-center text-sm text-gray-400">Administraties laden…</div>
+          ) : administrations.length === 0 ? (
+            <div className="bg-white rounded-xl border border-gray-100 p-10 text-center">
+              <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+              <p className="text-sm text-gray-500">Nog geen administraties beschikbaar.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {adminSignals.map((adm) => {
+                const isActive = adm.id === activeAdminId;
+                return (
+                  <Link key={adm.id} href="/bookkeeper?section=dashboard"
+                    onClick={() => selectAdministration(adm.id)}
+                    className={`group rounded-xl border p-5 bg-white hover:shadow-md transition-all relative overflow-hidden ${
+                      isActive ? "border-[#00AFCB]/60 ring-2 ring-[#00AFCB]/30" : "border-gray-100 hover:border-[#00AFCB]/40"
+                    }`}>
+                    {isActive && (
+                      <span className="absolute top-3 right-3 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#00AFCB]/15 text-[#004854]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#00AFCB]" />
+                        Actief
+                      </span>
+                    )}
+                    <div className="flex items-start gap-3 min-w-0">
+                      <span className="w-11 h-11 rounded-lg bg-[#004854] text-white font-bold text-lg flex items-center justify-center shrink-0">
+                        {(adm.company || adm.name).charAt(0).toUpperCase()}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <h3 className="text-sm font-semibold text-[#3C2C1E] group-hover:text-[#00AFCB] truncate">{adm.company || adm.name}</h3>
+                        <p className="text-xs text-gray-500 truncate">{adm.name !== (adm.company || adm.name) ? adm.name : adm.email}</p>
+                      </div>
+                    </div>
+                    <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                      <div className="bg-gray-50 rounded-lg py-2">
+                        <p className="text-[10px] text-gray-500">Facturen</p>
+                        <p className="text-sm font-bold text-[#004854]">{adm.invoiceCount}</p>
+                      </div>
+                      <div className={`rounded-lg py-2 ${adm.toBook > 0 ? "bg-amber-50" : "bg-gray-50"}`}>
+                        <p className={`text-[10px] ${adm.toBook > 0 ? "text-amber-700" : "text-gray-500"}`}>Te boeken</p>
+                        <p className={`text-sm font-bold ${adm.toBook > 0 ? "text-amber-600" : "text-gray-400"}`}>{adm.toBook}</p>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg py-2">
+                        <p className="text-[10px] text-gray-500">Inkoop</p>
+                        <p className="text-sm font-bold text-[#004854]">{adm.docCount}</p>
+                      </div>
+                    </div>
+                    <p className="mt-3 text-[11px] text-[#00AFCB] font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                      Open deze administratie →
+                    </p>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Gate every other section behind an active administration. Spec §4/§8
+          require strict isolation — we block the other modules from rendering
+          until the accountant has picked an administration, so data from
+          different customers can never accidentally mix together. */}
+      {section !== "administraties" && !activeAdminId && (
+        <div className="bg-white rounded-xl border border-gray-100 p-8 sm:p-10 text-center max-w-xl mx-auto mt-10">
+          <svg className="w-12 h-12 text-[#00AFCB] mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+          <h2 className="text-base font-semibold text-[#3C2C1E]">Selecteer eerst een administratie</h2>
+          <p className="text-sm text-gray-500 mt-1">Alle modules werken binnen één klantadministratie. Kies welke administratie u wilt openen.</p>
+          <Link href="/bookkeeper?section=administraties"
+            className="inline-flex items-center gap-2 mt-5 px-4 py-2 bg-[#00AFCB] text-white rounded-lg text-sm font-medium hover:bg-[#008FA8]">
+            Administratie kiezen
+          </Link>
+        </div>
+      )}
+
       {/* ═══ DASHBOARD ═══ */}
-      {section === "dashboard" && (
+      {section === "dashboard" && activeAdminId && (
         <div className="space-y-6">
           <h1 className="text-xl sm:text-2xl font-bold text-[#3C2C1E]">Dashboard</h1>
 
@@ -1026,7 +1169,7 @@ function BookkeeperContent() {
       )}
 
       {/* ═══ VERKOOP ═══ */}
-      {section === "verkoop" && (() => {
+      {section === "verkoop" && activeAdminId && (() => {
         const facturatieClients = clients.filter((c) => c.role === "client");
 
         return (
@@ -1841,7 +1984,7 @@ function BookkeeperContent() {
                   if (res.ok) {
                     setBulkMessage(data.message);
                     addToast({ type: "bookkeeping", title: "Bulk boeking voltooid", message: `${selectedSalesIds.size} facturen geboekt` });
-                    setInvoices((prev) => prev.map((inv) => selectedSalesIds.has(inv.id) ? { ...inv, bookkeepingStatus: "booked", category: bulkLedgerAccount, ...(bulkVatCode && { vatType: bulkVatCode }) } : inv));
+                    setAllInvoices((prev) => prev.map((inv) => selectedSalesIds.has(inv.id) ? { ...inv, bookkeepingStatus: "booked", category: bulkLedgerAccount, ...(bulkVatCode && { vatType: bulkVatCode }) } : inv));
                     setSelectedSalesIds(new Set()); setBulkLedgerSearch(""); setBulkLedgerAccount(""); setBulkVatCode(""); setBulkVatSearch("");
                     setTimeout(() => setBulkMessage(""), 4000);
                   }
@@ -2576,7 +2719,7 @@ function BookkeeperContent() {
       })()}
 
       {/* ═══ BOEKINGEN ═══ */}
-      {section === "boekingen" && (() => {
+      {section === "boekingen" && activeAdminId && (() => {
         const bookedInvoices = invoices.filter((i) => i.bookkeepingStatus === "booked" || i.bookkeepingStatus === "processed");
         const [boekingenFilterVal, setBoekingenFilterVal] = [filter, setFilter];
         const [boekingenClientVal, setBoekingenClientVal] = [clientFilter, setClientFilter];
@@ -2614,7 +2757,7 @@ function BookkeeperContent() {
               body: JSON.stringify({ bookkeepingStatus: "processed" }),
             });
             if (res.ok) {
-              setInvoices((prev) => prev.map((inv) => inv.id === invoiceId ? { ...inv, bookkeepingStatus: "processed" } : inv));
+              setAllInvoices((prev) => prev.map((inv) => inv.id === invoiceId ? { ...inv, bookkeepingStatus: "processed" } : inv));
             }
           } catch { /* */ }
           finally { setBookingLoading(null); }
@@ -2630,7 +2773,7 @@ function BookkeeperContent() {
               body: JSON.stringify({ invoiceIds: ids, bookkeepingStatus: "processed" }),
             });
             if (res.ok) {
-              setInvoices((prev) => prev.map((inv) => ids.includes(inv.id) ? { ...inv, bookkeepingStatus: "processed" } : inv));
+              setAllInvoices((prev) => prev.map((inv) => ids.includes(inv.id) ? { ...inv, bookkeepingStatus: "processed" } : inv));
             }
           } catch { /* */ }
           finally { setBulkBookingLoading(false); }
@@ -2925,7 +3068,7 @@ function BookkeeperContent() {
       })()}
 
       {/* ═══ INKOOP ═══ */}
-      {section === "inkoop" && (
+      {section === "inkoop" && activeAdminId && (
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
@@ -3353,7 +3496,7 @@ function BookkeeperContent() {
       )}
 
       {/* ═══ MEMORIAAL ═══ */}
-      {section === "memoriaal" && (() => {
+      {section === "memoriaal" && activeAdminId && (() => {
         const allActiveAccounts = ledgerAccounts.filter((a) => a.isActive);
         const allActiveVatCodes = vatCodes.filter((v) => v.isActive);
 
@@ -3808,7 +3951,7 @@ function BookkeeperContent() {
       })()}
 
       {/* ═══ BANK ═══ */}
-      {section === "bank" && (
+      {section === "bank" && activeAdminId && (
         <div className="space-y-6">
           <h1 className="text-xl sm:text-2xl font-bold text-[#3C2C1E]">Bank</h1>
 
@@ -3999,7 +4142,7 @@ function BookkeeperContent() {
       )}
 
       {/* ═══ KAS ═══ */}
-      {section === "kas" && (
+      {section === "kas" && activeAdminId && (
         <ModuleShell title="Kas" description="Beheer kastransacties en contante boekingen."
           sections={[
             { title: "Kastransacties", description: "Registreer en bekijk alle contante transacties." },
@@ -4010,7 +4153,7 @@ function BookkeeperContent() {
       )}
 
       {/* ═══ AFLETTEREN ═══ */}
-      {section === "afletteren" && (
+      {section === "afletteren" && activeAdminId && (
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
@@ -4154,7 +4297,7 @@ function BookkeeperContent() {
       )}
 
       {/* ═══ TAKEN ═══ */}
-      {section === "taken" && (
+      {section === "taken" && activeAdminId && (
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
@@ -4351,7 +4494,7 @@ function BookkeeperContent() {
       )}
 
       {/* ═══ BERICHTEN ═══ */}
-      {section === "berichten" && (
+      {section === "berichten" && activeAdminId && (
         <div className="space-y-4">
           <h1 className="text-xl sm:text-2xl font-bold text-[#3C2C1E]">Berichten</h1>
           <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4 min-h-[60vh]">
@@ -4548,7 +4691,7 @@ function BookkeeperContent() {
       )}
 
       {/* ═══ AGENDA ═══ */}
-      {section === "agenda" && (
+      {section === "agenda" && activeAdminId && (
         <div className="space-y-4">
           <h1 className="text-xl sm:text-2xl font-bold text-[#3C2C1E]">Agenda</h1>
           <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4">
@@ -4623,7 +4766,7 @@ function BookkeeperContent() {
       )}
 
       {/* ═══ GROOTBOEK ═══ */}
-      {section === "grootboek" && (() => {
+      {section === "grootboek" && activeAdminId && (() => {
         const accountTypeLabels: Record<string, string> = { asset: "Actief", liability: "Passief", equity: "Eigen vermogen", revenue: "Opbrengst", expense: "Kosten", contra: "Contra" };
         const accountTypeColors: Record<string, string> = { asset: "bg-blue-100 text-blue-700", liability: "bg-purple-100 text-purple-700", equity: "bg-indigo-100 text-indigo-700", revenue: "bg-green-100 text-green-700", expense: "bg-red-100 text-red-700", contra: "bg-gray-100 text-gray-600" };
         const rubricLabels: Record<string, string> = { "1a": "1a - Leveringen/diensten hoog tarief", "1b": "1b - Leveringen/diensten laag tarief", "1c": "1c - Leveringen/diensten overige tarieven", "1d": "1d - Privégebruik", "2a": "2a - Verlegd / nultarief", "3a": "3a - Leveringen buiten EU", "3b": "3b - Leveringen binnen EU (ICP)", "4a": "4a - Verwerving buiten EU", "4b": "4b - Verwerving binnen EU", "5a": "5a - Verschuldigde omzetbelasting", "5b": "5b - Voorbelasting" };
@@ -5096,7 +5239,7 @@ function BookkeeperContent() {
       })()}
 
       {/* ═══ BTW & FISCAAL ═══ */}
-      {section === "fiscaal" && (
+      {section === "fiscaal" && activeAdminId && (
         <ModuleShell title="BTW & Fiscaal" description="Fiscale overzichten en belastingrapportages."
           sections={[
             { title: "BTW-overzicht", description: "Overzicht van BTW-ontvangsten en -afdrachten per kwartaal." },
@@ -5108,7 +5251,7 @@ function BookkeeperContent() {
       )}
 
       {/* ═══ INSTELLINGEN ═══ */}
-      {section === "instellingen" && (
+      {section === "instellingen" && activeAdminId && (
         <div className="space-y-6">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-[#3C2C1E]">Instellingen</h1>

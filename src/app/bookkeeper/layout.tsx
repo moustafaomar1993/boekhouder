@@ -7,8 +7,10 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import NotificationBell from "@/components/NotificationBell";
 import { ToastProvider } from "@/components/ToastProvider";
+import { AdministrationProvider, useAdministration } from "@/components/AdministrationProvider";
 
 const sidebarItems = [
+  { key: "administraties", label: "Administraties", href: "/bookkeeper?section=administraties", icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg> },
   { key: "dashboard", label: "Dashboard", href: "/bookkeeper", icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1" /></svg> },
   { key: "verkoop", label: "Verkoop", href: "/bookkeeper?section=verkoop", icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> },
   { key: "inkoop", label: "Inkoop", href: "/bookkeeper?section=inkoop", icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" /></svg> },
@@ -26,6 +28,7 @@ const sidebarItems = [
 ];
 
 const sectionTitles: Record<string, string> = {
+  administraties: "Administraties",
   dashboard: "Dashboard", verkoop: "Verkoop", inkoop: "Inkoop", bank: "Bank",
   kas: "Kas", memoriaal: "Memoriaal", boekingen: "Boekingen", afletteren: "Afletteren",
   grootboek: "Grootboek", taken: "Taken", berichten: "Berichten",
@@ -36,7 +39,10 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { activeAdministration, administrations, selectAdministration } = useAdministration();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [adminMenuOpen, setAdminMenuOpen] = useState(false);
+  const adminMenuRef = useRef<HTMLDivElement>(null);
   const lastRefresh = useRef(0);
   const [sidebarCounts, setSidebarCounts] = useState<{ toProcess: number; overdue: number; inkoopNew: number; boekingenNew: number; boekingenOldQ: number }>({ toProcess: 0, overdue: 0, inkoopNew: 0, boekingenNew: 0, boekingenOldQ: 0 });
   // Generic per-module hover popup state. `hoveredModule` identifies which sidebar
@@ -82,6 +88,18 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
     refreshSession();
     return () => { events.forEach((e) => window.removeEventListener(e, refreshSession)); };
   }, [refreshSession]);
+
+  // Close the administration switcher dropdown on outside click / Escape
+  useEffect(() => {
+    if (!adminMenuOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (adminMenuRef.current && !adminMenuRef.current.contains(e.target as Node)) setAdminMenuOpen(false);
+    };
+    const handleKey = (e: KeyboardEvent) => { if (e.key === "Escape") setAdminMenuOpen(false); };
+    window.addEventListener("mousedown", handleClick);
+    window.addEventListener("keydown", handleKey);
+    return () => { window.removeEventListener("mousedown", handleClick); window.removeEventListener("keydown", handleKey); };
+  }, [adminMenuOpen]);
 
   useEffect(() => {
     if (mobileMenuOpen) {
@@ -335,19 +353,81 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
 
       {/* Desktop top header bar */}
       <div className="hidden lg:flex fixed top-0 left-[250px] right-0 h-14 bg-white border-b border-gray-200 z-30 items-center justify-between px-6">
-        <h1 className="text-base font-semibold text-[#3C2C1E]">{currentTitle}</h1>
+        <div className="flex items-center gap-3 min-w-0">
+          <h1 className="text-base font-semibold text-[#3C2C1E] shrink-0">{currentTitle}</h1>
+        </div>
         <div className="flex items-center gap-3">
+          {/* Active administration switcher */}
+          <div className="relative" ref={adminMenuRef}>
+            {activeAdministration ? (
+              <button onClick={() => setAdminMenuOpen((v) => !v)}
+                className="flex items-center gap-2 pl-2 pr-2.5 py-1.5 rounded-lg border border-gray-200 hover:border-[#00AFCB]/40 hover:bg-[#E6F9FC]/40 transition-colors max-w-[260px]">
+                <span className="w-6 h-6 rounded bg-[#004854] text-white text-[11px] font-bold flex items-center justify-center shrink-0">
+                  {(activeAdministration.company || activeAdministration.name).charAt(0).toUpperCase()}
+                </span>
+                <div className="min-w-0 text-left">
+                  <p className="text-[10px] text-gray-400 leading-none">Actieve administratie</p>
+                  <p className="text-xs font-medium text-[#004854] truncate">{activeAdministration.company || activeAdministration.name}</p>
+                </div>
+                <svg className="w-3.5 h-3.5 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+              </button>
+            ) : (
+              <Link href="/bookkeeper?section=administraties" onClick={() => setAdminMenuOpen(false)}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 hover:bg-amber-100 transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                <span className="text-xs font-medium">Selecteer administratie</span>
+              </Link>
+            )}
+            {adminMenuOpen && activeAdministration && (
+              <div className="absolute right-0 mt-1 w-72 bg-white border border-gray-200 rounded-xl shadow-lg py-1.5 z-[9999] max-h-[70vh] overflow-y-auto">
+                <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Wisselen naar</p>
+                {administrations.length === 0 && (
+                  <p className="px-3 py-2 text-xs text-gray-400">Geen administraties beschikbaar.</p>
+                )}
+                {administrations.map((adm) => (
+                  <button key={adm.id}
+                    onClick={() => { selectAdministration(adm.id); setAdminMenuOpen(false); }}
+                    className={`w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2.5 ${adm.id === activeAdministration.id ? "bg-[#E6F9FC]/40" : ""}`}>
+                    <span className="w-7 h-7 rounded bg-[#004854] text-white text-[11px] font-bold flex items-center justify-center shrink-0">
+                      {(adm.company || adm.name).charAt(0).toUpperCase()}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-gray-900 truncate">{adm.company || adm.name}</p>
+                      <p className="text-[10px] text-gray-400 truncate">{adm.email}</p>
+                    </div>
+                    {adm.id === activeAdministration.id && (
+                      <svg className="w-4 h-4 text-[#00AFCB]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                    )}
+                  </button>
+                ))}
+                <div className="border-t border-gray-100 mt-1 pt-1 px-1">
+                  <Link href="/bookkeeper?section=administraties" onClick={() => setAdminMenuOpen(false)}
+                    className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs text-[#00AFCB] font-medium hover:bg-[#E6F9FC]/40">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+                    Alle administraties
+                  </Link>
+                </div>
+              </div>
+            )}
+          </div>
           <NotificationBell variant="light" />
         </div>
       </div>
 
       {/* Mobile header */}
       <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-[#004854] border-b border-white/10 pt-[env(safe-area-inset-top)]">
-        <div className="flex items-center justify-between px-4 h-14">
-          <Link href="/bookkeeper" className="block">
+        <div className="flex items-center justify-between px-4 h-14 gap-2">
+          <Link href="/bookkeeper" className="block shrink-0">
             <Image src="/logo.svg" alt="HAMZA Deboekhouder" width={120} height={31} className="brightness-0 invert" priority />
           </Link>
-          <div className="flex items-center gap-1">
+          {activeAdministration && (
+            <Link href="/bookkeeper?section=administraties"
+              className="flex-1 min-w-0 mx-1 px-2 py-1 rounded-md bg-white/10 hover:bg-white/15 transition-colors">
+              <p className="text-[9px] text-white/50 leading-none">Administratie</p>
+              <p className="text-[11px] font-medium text-white truncate leading-tight">{activeAdministration.company || activeAdministration.name}</p>
+            </Link>
+          )}
+          <div className="flex items-center gap-1 shrink-0">
             <NotificationBell />
             <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="p-2 rounded-lg text-white/70 hover:bg-white/10 transition-colors"
@@ -387,5 +467,13 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
 }
 
 export default function BookkeeperLayout({ children }: { children: React.ReactNode }) {
-  return <ToastProvider><Suspense><BookkeeperLayoutInner>{children}</BookkeeperLayoutInner></Suspense></ToastProvider>;
+  return (
+    <ToastProvider>
+      <Suspense>
+        <AdministrationProvider>
+          <BookkeeperLayoutInner>{children}</BookkeeperLayoutInner>
+        </AdministrationProvider>
+      </Suspense>
+    </ToastProvider>
+  );
 }
