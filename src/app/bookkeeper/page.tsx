@@ -248,6 +248,27 @@ function BookkeeperContent() {
   // Boeken summary filter
   const [boekenSummaryFilter, setBoekenSummaryFilter] = useState<string>("all");
 
+  // Workflow board filters (shared between Verkoop and Inkoop boards). They do
+  // not force a relation on load — the board shows ALL items by default so the
+  // accountant sees the total operational workload first, and can narrow down
+  // after if needed.
+  const [boardRelationFilter, setBoardRelationFilter] = useState<string>("all");
+  const [boardPeriod, setBoardPeriod] = useState<"all" | "month" | "quarter" | "year">("all");
+
+  function inBoardPeriod(dateStr: string | null | undefined): boolean {
+    if (!dateStr) return boardPeriod === "all";
+    if (boardPeriod === "all") return true;
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return false;
+    const now = new Date();
+    if (boardPeriod === "year") return d.getFullYear() === now.getFullYear();
+    if (boardPeriod === "quarter") {
+      return d.getFullYear() === now.getFullYear() && Math.floor(d.getMonth() / 3) === Math.floor(now.getMonth() / 3);
+    }
+    // month
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  }
+
   // Voortgang popup
   const [showVoortgang, setShowVoortgang] = useState(false);
 
@@ -1360,8 +1381,120 @@ function BookkeeperContent() {
 
               // ── CUSTOMER OVERVIEW (no client selected) ──
               if (!boekenClient) {
+                // Workflow board data — filter invoices by relation + period,
+                // then bucket into kanban stages based on bookkeepingStatus.
+                const boardRelationClients = clients.filter((c) => c.role === "client");
+                const boardBaseInvoices = invoices.filter((inv) => {
+                  if (boardRelationFilter !== "all" && inv.clientId !== boardRelationFilter) return false;
+                  if (!inBoardPeriod(inv.date)) return false;
+                  return true;
+                });
+                const boardColumns = [
+                  {
+                    key: "nieuw",
+                    label: "Nieuw binnengekomen",
+                    accent: "border-blue-200 bg-blue-50/40",
+                    chip: "bg-blue-100 text-blue-700",
+                    items: boardBaseInvoices.filter((i) => i.bookkeepingStatus === "pending"),
+                  },
+                  {
+                    key: "te_boeken",
+                    label: "Te boeken",
+                    accent: "border-amber-200 bg-amber-50/40",
+                    chip: "bg-amber-100 text-amber-700",
+                    items: boardBaseInvoices.filter((i) => i.bookkeepingStatus === "to_book" || i.bookkeepingStatus === "processing"),
+                  },
+                  {
+                    key: "geboekt",
+                    label: "Geboekt",
+                    accent: "border-emerald-200 bg-emerald-50/40",
+                    chip: "bg-emerald-100 text-emerald-700",
+                    items: boardBaseInvoices.filter((i) => i.bookkeepingStatus === "booked"),
+                  },
+                  {
+                    key: "verwerkt",
+                    label: "Verwerkt",
+                    accent: "border-green-200 bg-green-50/40",
+                    chip: "bg-green-100 text-green-700",
+                    items: boardBaseInvoices.filter((i) => i.bookkeepingStatus === "processed"),
+                  },
+                ];
+                const BOARD_VISIBLE_PER_COL = 8;
+
                 return (
                   <div className="space-y-5">
+                    {/* ═══ Workflow board (Level 1 — global operational overview) ═══ */}
+                    <section className="space-y-3">
+                      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
+                        <div>
+                          <h2 className="text-sm font-semibold text-gray-700">Workflow</h2>
+                          <p className="text-[11px] text-gray-400">Alle facturen in de boekhoudstroom</p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <select value={boardRelationFilter} onChange={(e) => setBoardRelationFilter(e.target.value)}
+                            className="border border-gray-200 bg-white rounded-lg px-2.5 py-1.5 text-xs focus:ring-2 focus:ring-[#00AFCB]/30 outline-none">
+                            <option value="all">Alle relaties</option>
+                            {boardRelationClients.map((c) => <option key={c.id} value={c.id}>{c.company || c.name}</option>)}
+                          </select>
+                          <select value={boardPeriod} onChange={(e) => setBoardPeriod(e.target.value as "all" | "month" | "quarter" | "year")}
+                            className="border border-gray-200 bg-white rounded-lg px-2.5 py-1.5 text-xs focus:ring-2 focus:ring-[#00AFCB]/30 outline-none">
+                            <option value="all">Alle periodes</option>
+                            <option value="month">Deze maand</option>
+                            <option value="quarter">Dit kwartaal</option>
+                            <option value="year">Dit jaar</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Columns — grid on desktop, horizontal scroll on smaller screens */}
+                      <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory -mx-4 px-4 sm:mx-0 sm:px-0 sm:grid sm:grid-cols-2 xl:grid-cols-4 sm:overflow-visible">
+                        {boardColumns.map((col) => (
+                          <div key={col.key} className={`shrink-0 w-[260px] sm:w-auto snap-start rounded-xl border ${col.accent} p-3 flex flex-col min-h-[220px]`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-xs font-semibold text-gray-700">{col.label}</span>
+                              <span className={`inline-flex items-center justify-center min-w-[22px] h-5 px-1.5 rounded-full text-[10px] font-bold ${col.chip}`}>{col.items.length}</span>
+                            </div>
+                            {col.items.length === 0 ? (
+                              <p className="text-[11px] text-gray-400 text-center py-6">Geen items</p>
+                            ) : (
+                              <div className="space-y-2 max-h-[360px] overflow-y-auto pr-0.5">
+                                {col.items.slice(0, BOARD_VISIBLE_PER_COL).map((inv) => {
+                                  const canBook = inv.bookkeepingStatus === "pending" || inv.bookkeepingStatus === "to_book" || inv.bookkeepingStatus === "processing";
+                                  const cardBody = (
+                                    <div className="bg-white rounded-lg p-2.5 border border-gray-200 hover:border-[#00AFCB]/50 hover:shadow-sm transition-all">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <span className="text-xs font-medium text-gray-900 truncate">{inv.invoiceNumber}</span>
+                                        <span className="text-xs font-semibold text-gray-700 shrink-0">{formatCurrency(inv.total)}</span>
+                                      </div>
+                                      <p className="text-[11px] text-gray-600 truncate mt-0.5">{inv.customerName}</p>
+                                      <div className="flex items-center justify-between mt-1.5">
+                                        <span className="text-[10px] text-gray-400">{formatDate(inv.date)}</span>
+                                        <StatusBadge status={inv.bookkeepingStatus} />
+                                      </div>
+                                    </div>
+                                  );
+                                  return canBook ? (
+                                    <button key={inv.id} onClick={() => openBookModal(inv)} className="w-full text-left">
+                                      {cardBody}
+                                    </button>
+                                  ) : (
+                                    <Link key={inv.id} href={`/bookkeeper/invoices/${inv.id}?from=verkoop-board`} className="block">
+                                      {cardBody}
+                                    </Link>
+                                  );
+                                })}
+                                {col.items.length > BOARD_VISIBLE_PER_COL && (
+                                  <p className="text-[10px] text-gray-400 text-center pt-1">+{col.items.length - BOARD_VISIBLE_PER_COL} meer</p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+
+                    {/* ═══ Level 2 — per-customer / relation drill-down ═══ */}
+                    <div className="pt-2 border-t border-gray-100" />
                     {/* Summary — clickable to filter client tiles */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                       <button onClick={() => setBoekenSummaryFilter("all")}
@@ -2797,6 +2930,121 @@ function BookkeeperContent() {
 
           {/* ─── INKOOP BOEKEN TAB ─── */}
           {inkoopTab === "boeken" && (<>
+
+          {/* ═══ Workflow board (Level 1 — global purchase workflow) ═══ */}
+          {(() => {
+            const inkoopBoardClients = [...new Map(purchaseDocs.map((d) => [d.userId, d.user])).values()];
+            const inkoopBoardBase = purchaseDocs.filter((d) => {
+              if (boardRelationFilter !== "all" && d.userId !== boardRelationFilter) return false;
+              if (!inBoardPeriod(d.documentDate || d.createdAt)) return false;
+              return true;
+            });
+            const now = new Date();
+            const currentQ = Math.floor(now.getMonth() / 3);
+            const currentY = now.getFullYear();
+            const isOldQuarter = (dateStr: string | null | undefined) => {
+              if (!dateStr) return false;
+              const d = new Date(dateStr);
+              if (Number.isNaN(d.getTime())) return false;
+              const q = Math.floor(d.getMonth() / 3);
+              return d.getFullYear() < currentY || (d.getFullYear() === currentY && q < currentQ);
+            };
+            const inkoopColumns = [
+              {
+                key: "nieuw",
+                label: "Nieuw binnengekomen",
+                accent: "border-blue-200 bg-blue-50/40",
+                chip: "bg-blue-100 text-blue-700",
+                items: inkoopBoardBase.filter((d) => d.status === "uploaded"),
+              },
+              {
+                key: "te_boeken",
+                label: "Te boeken",
+                accent: "border-amber-200 bg-amber-50/40",
+                chip: "bg-amber-100 text-amber-700",
+                items: inkoopBoardBase.filter((d) => d.status === "processing"),
+              },
+              {
+                key: "geboekt",
+                label: "Geboekt",
+                accent: "border-emerald-200 bg-emerald-50/40",
+                chip: "bg-emerald-100 text-emerald-700",
+                items: inkoopBoardBase.filter((d) => d.status === "booked" && !isOldQuarter(d.bookedAt || d.documentDate)),
+              },
+              {
+                key: "verwerkt",
+                label: "Verwerkt",
+                accent: "border-green-200 bg-green-50/40",
+                chip: "bg-green-100 text-green-700",
+                items: inkoopBoardBase.filter((d) => d.status === "booked" && isOldQuarter(d.bookedAt || d.documentDate)),
+              },
+            ];
+            const BOARD_VISIBLE_PER_COL = 8;
+            return (
+              <section className="space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
+                  <div>
+                    <h2 className="text-sm font-semibold text-gray-700">Workflow</h2>
+                    <p className="text-[11px] text-gray-400">Alle inkoopdocumenten in de boekhoudstroom</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select value={boardRelationFilter} onChange={(e) => setBoardRelationFilter(e.target.value)}
+                      className="border border-gray-200 bg-white rounded-lg px-2.5 py-1.5 text-xs focus:ring-2 focus:ring-[#00AFCB]/30 outline-none">
+                      <option value="all">Alle relaties</option>
+                      {inkoopBoardClients.map((c) => <option key={c.id} value={c.id}>{c.company || c.name}</option>)}
+                    </select>
+                    <select value={boardPeriod} onChange={(e) => setBoardPeriod(e.target.value as "all" | "month" | "quarter" | "year")}
+                      className="border border-gray-200 bg-white rounded-lg px-2.5 py-1.5 text-xs focus:ring-2 focus:ring-[#00AFCB]/30 outline-none">
+                      <option value="all">Alle periodes</option>
+                      <option value="month">Deze maand</option>
+                      <option value="quarter">Dit kwartaal</option>
+                      <option value="year">Dit jaar</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory -mx-4 px-4 sm:mx-0 sm:px-0 sm:grid sm:grid-cols-2 xl:grid-cols-4 sm:overflow-visible">
+                  {inkoopColumns.map((col) => (
+                    <div key={col.key} className={`shrink-0 w-[260px] sm:w-auto snap-start rounded-xl border ${col.accent} p-3 flex flex-col min-h-[220px]`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-semibold text-gray-700">{col.label}</span>
+                        <span className={`inline-flex items-center justify-center min-w-[22px] h-5 px-1.5 rounded-full text-[10px] font-bold ${col.chip}`}>{col.items.length}</span>
+                      </div>
+                      {col.items.length === 0 ? (
+                        <p className="text-[11px] text-gray-400 text-center py-6">Geen items</p>
+                      ) : (
+                        <div className="space-y-2 max-h-[360px] overflow-y-auto pr-0.5">
+                          {col.items.slice(0, BOARD_VISIBLE_PER_COL).map((doc) => (
+                            <button key={doc.id} onClick={() => setPurchaseViewDoc(doc)} className="w-full text-left">
+                              <div className="bg-white rounded-lg p-2.5 border border-gray-200 hover:border-[#00AFCB]/50 hover:shadow-sm transition-all">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-xs font-medium text-gray-900 truncate">{doc.supplierName || doc.label || doc.fileName}</span>
+                                  {(doc.totalAmount ?? doc.amount) != null && (
+                                    <span className="text-xs font-semibold text-gray-700 shrink-0">{formatCurrency((doc.totalAmount ?? doc.amount) as number)}</span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-gray-600 truncate mt-0.5">{doc.user.company || doc.user.name}</p>
+                                <div className="flex items-center justify-between mt-1.5">
+                                  <span className="text-[10px] text-gray-400">{formatDate((doc.documentDate || doc.createdAt).split("T")[0])}</span>
+                                  <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-medium ${purchaseStatusColors[doc.status] || "bg-gray-100"}`}>{purchaseStatusLabels[doc.status] || doc.status}</span>
+                                </div>
+                              </div>
+                            </button>
+                          ))}
+                          {col.items.length > BOARD_VISIBLE_PER_COL && (
+                            <p className="text-[10px] text-gray-400 text-center pt-1">+{col.items.length - BOARD_VISIBLE_PER_COL} meer</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="pt-2 border-t border-gray-100" />
+              </section>
+            );
+          })()}
+
           {/* Stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
