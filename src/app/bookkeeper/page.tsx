@@ -2042,6 +2042,21 @@ function BookkeeperContent() {
                               onChange={(e) => { setBulkLedgerSearch(e.target.value); setBulkLedgerAccount(""); setShowBulkLedgerDrop(true); }}
                               onFocus={() => setShowBulkLedgerDrop(true)}
                               onBlur={() => setTimeout(() => setShowBulkLedgerDrop(false), 200)}
+                              onKeyDown={(e) => {
+                                // Tab-to-select: when the search narrows down to exactly
+                                // one ledger account, pressing Tab confirms it and lets
+                                // focus naturally move to the next field.
+                                if (e.key !== "Tab" || e.shiftKey || bulkLedgerAccount || !bulkLedgerSearch.trim()) return;
+                                if (bulkFilteredAccounts.length !== 1) return;
+                                const a = bulkFilteredAccounts[0];
+                                setBulkLedgerAccount(`${a.accountNumber} ${a.name}`);
+                                setBulkLedgerSearch(`${a.accountNumber} - ${a.name}`);
+                                setShowBulkLedgerDrop(false);
+                                if (a.defaultVatCode && !bulkVatCode) {
+                                  setBulkVatCode(`${a.defaultVatCode.code} ${a.defaultVatCode.name} ${a.defaultVatCode.percentage}%`);
+                                  setBulkVatSearch(`${a.defaultVatCode.code} - ${a.defaultVatCode.name} (${a.defaultVatCode.percentage}%)`);
+                                }
+                              }}
                               placeholder="Zoek rekening (nr/naam)..."
                               className="w-full border border-white/20 bg-white/10 text-white placeholder-white/40 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#00AFCB]/50 outline-none" />
                             {showBulkLedgerDrop && bulkFilteredAccounts.length > 0 && (
@@ -2088,6 +2103,14 @@ function BookkeeperContent() {
                               onChange={(e) => { setBulkVatSearch(e.target.value); setBulkVatCode(""); setShowBulkVatDrop(true); }}
                               onFocus={() => setShowBulkVatDrop(true)}
                               onBlur={() => setTimeout(() => setShowBulkVatDrop(false), 200)}
+                              onKeyDown={(e) => {
+                                if (e.key !== "Tab" || e.shiftKey || bulkVatCode || !bulkVatSearch.trim()) return;
+                                if (bulkVatFiltered.length !== 1) return;
+                                const v = bulkVatFiltered[0];
+                                setBulkVatCode(`${v.code} ${v.name} ${v.percentage}%`);
+                                setBulkVatSearch(`${v.code} - ${v.name} (${v.percentage}%)`);
+                                setShowBulkVatDrop(false);
+                              }}
                               placeholder="Zoek BTW-code..."
                               className="w-full border border-white/20 bg-white/10 text-white placeholder-white/40 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#00AFCB]/50 outline-none" />
                             {showBulkVatDrop && bulkVatFiltered.length > 0 && (
@@ -2339,6 +2362,23 @@ function BookkeeperContent() {
                                                 onChange={(e) => { updateBookingRow(row.id, "ledgerSearch", e.target.value); updateBookingRow(row.id, "ledgerAccount", ""); setActiveRowDrop({ rowId: row.id, field: "ledger" }); }}
                                                 onFocus={() => setActiveRowDrop({ rowId: row.id, field: "ledger" })}
                                                 onBlur={() => setTimeout(() => { setActiveRowDrop(prev => prev?.rowId === row.id && prev?.field === "ledger" ? null : prev); }, 200)}
+                                                onKeyDown={(e) => {
+                                                  // Tab-to-select when exactly one ledger match remains
+                                                  if (e.key !== "Tab" || e.shiftKey || row.ledgerAccount || !row.ledgerSearch.trim()) return;
+                                                  if (rowLedgerAccounts.length !== 1) return;
+                                                  const a = rowLedgerAccounts[0];
+                                                  const patch: Partial<BookingRow> = {
+                                                    ledgerAccount: `${a.accountNumber} ${a.name}`,
+                                                    ledgerSearch: `${a.accountNumber} - ${a.name}`,
+                                                  };
+                                                  if (a.defaultVatCode && !row.vatCode) {
+                                                    patch.vatCode = `${a.defaultVatCode.code} ${a.defaultVatCode.name} ${a.defaultVatCode.percentage}%`;
+                                                    patch.vatSearch = `${a.defaultVatCode.code} - ${a.defaultVatCode.name} (${a.defaultVatCode.percentage}%)`;
+                                                    patch.vatAmount = computeVatAmount(rowExcl, a.defaultVatCode.percentage);
+                                                  }
+                                                  updateBookingRowPatch(row.id, patch);
+                                                  setActiveRowDrop(null);
+                                                }}
                                                 placeholder="Zoek rekening..."
                                                 className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
                                               {showLedgerDrop && rowLedgerAccounts.length > 0 && (
@@ -2395,6 +2435,17 @@ function BookkeeperContent() {
                                                 onChange={(e) => { updateBookingRow(row.id, "vatSearch", e.target.value); updateBookingRow(row.id, "vatCode", ""); setActiveRowDrop({ rowId: row.id, field: "vat" }); }}
                                                 onFocus={() => setActiveRowDrop({ rowId: row.id, field: "vat" })}
                                                 onBlur={() => setTimeout(() => { setActiveRowDrop(prev => prev?.rowId === row.id && prev?.field === "vat" ? null : prev); }, 200)}
+                                                onKeyDown={(e) => {
+                                                  if (e.key !== "Tab" || e.shiftKey || row.vatCode || !row.vatSearch.trim()) return;
+                                                  if (rowVatCodes.length !== 1) return;
+                                                  const v = rowVatCodes[0];
+                                                  updateBookingRowPatch(row.id, {
+                                                    vatCode: `${v.code} ${v.name} ${v.percentage}%`,
+                                                    vatSearch: `${v.code} - ${v.name} (${v.percentage}%)`,
+                                                    vatAmount: computeVatAmount(rowExcl, v.percentage),
+                                                  });
+                                                  setActiveRowDrop(null);
+                                                }}
                                                 placeholder="BTW-code..."
                                                 className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
                                               {showVatDrop && rowVatCodes.length > 0 && (
@@ -2506,6 +2557,22 @@ function BookkeeperContent() {
                                           onChange={(e) => { updateBookingRow(row.id, "ledgerSearch", e.target.value); updateBookingRow(row.id, "ledgerAccount", ""); setActiveRowDrop({ rowId: row.id, field: "ledger" }); }}
                                           onFocus={() => setActiveRowDrop({ rowId: row.id, field: "ledger" })}
                                           onBlur={() => setTimeout(() => { setActiveRowDrop(prev => prev?.rowId === row.id && prev?.field === "ledger" ? null : prev); }, 200)}
+                                          onKeyDown={(e) => {
+                                            if (e.key !== "Tab" || e.shiftKey || row.ledgerAccount || !row.ledgerSearch.trim()) return;
+                                            if (rowLedgerAccounts.length !== 1) return;
+                                            const a = rowLedgerAccounts[0];
+                                            const patch: Partial<BookingRow> = {
+                                              ledgerAccount: `${a.accountNumber} ${a.name}`,
+                                              ledgerSearch: `${a.accountNumber} - ${a.name}`,
+                                            };
+                                            if (a.defaultVatCode && !row.vatCode) {
+                                              patch.vatCode = `${a.defaultVatCode.code} ${a.defaultVatCode.name} ${a.defaultVatCode.percentage}%`;
+                                              patch.vatSearch = `${a.defaultVatCode.code} - ${a.defaultVatCode.name} (${a.defaultVatCode.percentage}%)`;
+                                              patch.vatAmount = computeVatAmount(rowExcl, a.defaultVatCode.percentage);
+                                            }
+                                            updateBookingRowPatch(row.id, patch);
+                                            setActiveRowDrop(null);
+                                          }}
                                           placeholder="Zoek rekening..."
                                           className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
                                         {showLedgerDrop && rowLedgerAccounts.length > 0 && (
@@ -2553,6 +2620,17 @@ function BookkeeperContent() {
                                           onChange={(e) => { updateBookingRow(row.id, "vatSearch", e.target.value); updateBookingRow(row.id, "vatCode", ""); setActiveRowDrop({ rowId: row.id, field: "vat" }); }}
                                           onFocus={() => setActiveRowDrop({ rowId: row.id, field: "vat" })}
                                           onBlur={() => setTimeout(() => { setActiveRowDrop(prev => prev?.rowId === row.id && prev?.field === "vat" ? null : prev); }, 200)}
+                                          onKeyDown={(e) => {
+                                            if (e.key !== "Tab" || e.shiftKey || row.vatCode || !row.vatSearch.trim()) return;
+                                            if (rowVatCodes.length !== 1) return;
+                                            const v = rowVatCodes[0];
+                                            updateBookingRowPatch(row.id, {
+                                              vatCode: `${v.code} ${v.name} ${v.percentage}%`,
+                                              vatSearch: `${v.code} - ${v.name} (${v.percentage}%)`,
+                                              vatAmount: computeVatAmount(rowExcl, v.percentage),
+                                            });
+                                            setActiveRowDrop(null);
+                                          }}
                                           placeholder="BTW-code..."
                                           className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-[#00AFCB]/30 outline-none" />
                                         {showVatDrop && rowVatCodes.length > 0 && (
