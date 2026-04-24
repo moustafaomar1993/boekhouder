@@ -1,119 +1,150 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 export interface SideRailItem {
   key: string;
   label: string;
   href: string;
   icon: ReactNode;
-  /** Optional badge rendered on the collapsed icon (top-right corner). */
+  /** Optional badge rendered at the top-right of the icon tile. */
   badge?: ReactNode;
-  /** Click handler that fires in addition to route navigation. */
+  /** Extra click handler (runs alongside navigation). */
   onSelect?: () => void;
 }
 
 /**
- * Left-side navigation rail.
+ * Left-side icon rail with expand-on-hover behaviour.
  *
- * At rest: compact vertical column of icons. The full width of the rail is
- * 56 px (44 px icon tile + 12 px rail padding). Labels are hidden.
+ * At rest each item is a 44 px icon tile. When the cursor enters a tile
+ * we mount a "pill" via createPortal, positioned with fixed coordinates
+ * based on the tile's bounding rect. The pill's width (44 → 200 px) and
+ * the label's opacity are driven by CSS keyframes with `forwards` fill —
+ * no React state transitions needed, and the portal guarantees the pill
+ * is never clipped by ancestor overflow containers.
  *
- * On hover: the hovered item expands rightward into the content area as a
- * single connected button — icon stays anchored on the left of the button,
- * label reveals inside the same button as its width grows. Z-index places
- * the expanded button above the main content underneath.
+ * A `key={hoveredKey}` on the portal node forces a fresh mount when the
+ * cursor moves from one tile to another, so the animation replays from
+ * its starting state instead of staying at the end state.
  *
- * The items directly above and below the hovered one nudge a couple of
- * pixels to the right so the whole rail feels alive without being noisy.
- * Moving the cursor down the rail creates a gentle ripple where each item
- * glides out and back in as it passes under the pointer.
+ * Neighbour reaction: items at distance 1/2 from the hovered tile nudge
+ * 3 / 1 px to the right so moving the cursor down the rail produces a
+ * gentle ripple.
  */
 export function SideRail({ items, activeKey }: { items: SideRailItem[]; activeKey?: string }) {
+  const tileRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+  const [hoverRect, setHoverRect] = useState<{ top: number; left: number } | null>(null);
   const hoveredIndex = hoveredKey ? items.findIndex((i) => i.key === hoveredKey) : -1;
-
-  // Width constants
-  const COLLAPSED = 44;  // resting button width
-  const EXPANDED = 188;  // hover-expanded button width
-  // Subtle translate on neighbouring items for the "flow" effect
   const NEIGHBOUR_SHIFT = [0, 3, 1];
 
+  function enterTile(key: string, el: HTMLElement | null) {
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setHoverRect({ top: rect.top, left: rect.left });
+    setHoveredKey(key);
+  }
+  function leavePill() {
+    setHoveredKey(null);
+    setHoverRect(null);
+  }
+
+  const hoveredItem = hoveredKey ? items.find((i) => i.key === hoveredKey) || null : null;
+  const hoveredIsActive = hoveredItem ? activeKey === hoveredItem.key : false;
+
   return (
-    <nav className="flex flex-col gap-1 px-1.5 py-2">
-      {items.map((item, idx) => {
-        const isHovered = hoveredKey === item.key;
-        const isActive = activeKey === item.key;
-        const distance = hoveredIndex >= 0 ? Math.abs(idx - hoveredIndex) : 999;
-        const shift = !isHovered ? (NEIGHBOUR_SHIFT[distance] ?? 0) : 0;
+    <>
+      <nav className="flex flex-col gap-1 px-1.5 py-2">
+        {items.map((item, idx) => {
+          const isActive = activeKey === item.key;
+          const isHovered = hoveredKey === item.key;
+          const distance = hoveredIndex >= 0 ? Math.abs(idx - hoveredIndex) : 999;
+          const shift = !isHovered ? (NEIGHBOUR_SHIFT[distance] ?? 0) : 0;
 
-        return (
-          <div
-            key={item.key}
-            data-rail-item={item.key}
-            className="relative"
-            style={{
-              transform: `translateX(${shift}px)`,
-              transition: "transform 260ms cubic-bezier(0.22, 1, 0.36, 1)",
-              // Hovered item floats above its neighbours so its expanded
-              // silhouette always renders above surrounding items.
-              zIndex: isHovered ? 30 : isActive ? 20 : 10,
-            }}
-          >
-            <Link
-              href={item.href}
-              onClick={item.onSelect}
-              onMouseEnter={() => setHoveredKey(item.key)}
-              onMouseLeave={() => setHoveredKey(null)}
-              aria-label={item.label}
-              className={`group relative flex items-center h-11 rounded-xl overflow-hidden whitespace-nowrap transition-[width,background-color,box-shadow] duration-300 ease-out ${
-                isActive
-                  ? isHovered
-                    ? "bg-[#00AFCB] text-white shadow-[0_6px_20px_-6px_rgba(0,175,203,0.6)]"
-                    : "bg-[#00AFCB]/25 text-white"
-                  : isHovered
-                    ? "bg-[#003845] text-white shadow-[0_6px_20px_-8px_rgba(0,0,0,0.6)]"
-                    : "bg-transparent text-white/65 hover:text-white"
-              }`}
-              style={{ width: isHovered ? EXPANDED : COLLAPSED }}
+          return (
+            <div
+              key={item.key}
+              ref={(el) => { tileRefs.current[item.key] = el; }}
+              data-rail-item={item.key}
+              className="relative"
+              style={{
+                transform: `translateX(${shift}px)`,
+                transition: "transform 260ms cubic-bezier(0.22, 1, 0.36, 1)",
+              }}
+              onMouseEnter={(e) => enterTile(item.key, e.currentTarget)}
             >
-              {/* Active-state indicator — small vertical bar on the left
-                  edge, mirrors the original sidebar style. Stays visible
-                  even in icon-only mode so the selected module is always
-                  identifiable. */}
-              {isActive && (
-                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-[#00AFCB] rounded-r-full" />
-              )}
-
-              {/* Icon — stays anchored on the left of the button at all
-                  widths. 44×44 matches the collapsed button so the icon
-                  fills the whole tile at rest. */}
-              <span className="w-11 h-11 shrink-0 flex items-center justify-center [&>svg]:w-[18px] [&>svg]:h-[18px]">
-                {item.icon}
-              </span>
-
-              {/* Label — revealed as the button expands. Fades in slightly
-                  faster than the width so it doesn't feel "dragged". */}
-              <span
-                className="text-[13px] font-medium pr-4 transition-opacity duration-200"
-                style={{ opacity: isHovered ? 1 : 0 }}
+              <Link
+                href={item.href}
+                onClick={item.onSelect}
+                aria-label={item.label}
+                className={`relative flex items-center w-11 h-11 rounded-xl transition-colors duration-200 ${
+                  isActive
+                    ? "bg-[#00AFCB]/25 text-white"
+                    : "text-white/65 hover:text-white"
+                }`}
               >
-                {item.label}
-              </span>
-
-              {/* Badge slot — positioned on the icon tile (not the full
-                  button) so it stays in the same place collapsed or
-                  expanded. */}
+                {isActive && (
+                  <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-[#00AFCB] rounded-r-full" />
+                )}
+                <span className="w-11 h-11 flex items-center justify-center [&>svg]:w-[18px] [&>svg]:h-[18px]">
+                  {item.icon}
+                </span>
+              </Link>
               {item.badge && (
-                <span className="absolute top-0.5 left-[31px] z-10">
+                <span className="absolute top-0.5 -right-0.5 z-10">
                   {item.badge}
                 </span>
               )}
-            </Link>
-          </div>
-        );
-      })}
-    </nav>
+            </div>
+          );
+        })}
+      </nav>
+
+      {/* Portal-rendered expanded pill — sits at fixed coordinates above
+          any page content, never clipped by overflow containers. The
+          `key={hoveredKey}` forces a fresh mount each time the hovered
+          tile changes, so the width + label animations replay from their
+          starting state instead of jumping straight to 200 px. */}
+      {hoveredItem && hoverRect && typeof document !== "undefined" && createPortal(
+        <div
+          key={hoveredKey ?? undefined}
+          className={`fixed z-[80] h-11 rounded-xl flex items-center whitespace-nowrap overflow-hidden shadow-[0_10px_30px_-8px_rgba(0,0,0,0.55)] ring-1 ring-white/5 animate-side-rail-slide ${
+            hoveredIsActive
+              ? "bg-[#00AFCB] text-white"
+              : "bg-[#003845] text-white"
+          }`}
+          style={{
+            top: hoverRect.top,
+            left: hoverRect.left,
+          }}
+          onMouseLeave={leavePill}
+        >
+          {hoveredIsActive && (
+            <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-white/90 rounded-r-full" />
+          )}
+          <Link
+            href={hoveredItem.href}
+            onClick={hoveredItem.onSelect}
+            className="flex items-center h-full w-full"
+            aria-label={hoveredItem.label}
+          >
+            <span className="w-11 h-11 shrink-0 flex items-center justify-center [&>svg]:w-[18px] [&>svg]:h-[18px]">
+              {hoveredItem.icon}
+            </span>
+            <span className="text-[13px] font-medium pr-4 animate-side-rail-label">
+              {hoveredItem.label}
+            </span>
+          </Link>
+          {hoveredItem.badge && (
+            <span className="absolute top-0.5 -right-0.5 z-10">
+              {hoveredItem.badge}
+            </span>
+          )}
+        </div>,
+        document.body
+      )}
+    </>
   );
 }

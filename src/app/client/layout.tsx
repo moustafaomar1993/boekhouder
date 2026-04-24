@@ -196,32 +196,31 @@ function ClientLayoutInner({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen">
-      {/* Desktop left sidebar — compact icon rail with hover expansion */}
-      <aside className="hidden lg:flex w-14 bg-[#004854] flex-col fixed top-0 left-0 h-full z-40 pt-[env(safe-area-inset-top)] overflow-visible shadow-[4px_0_20px_-10px_rgba(0,0,0,0.3)]">
-        {/* Logo — compact brand mark */}
-        <div className="flex items-center justify-center h-14 border-b border-white/10 shrink-0">
-          <Link href="/client" aria-label="Home" className="w-9 h-9 rounded-lg bg-gradient-to-br from-[#00AFCB] to-[#008FA8] flex items-center justify-center shadow-[0_2px_8px_rgba(0,175,203,0.35)]">
-            <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M4 21V5a2 2 0 012-2h4a2 2 0 012 2v3h6a2 2 0 012 2v11H4z M8 10v4M16 12v6" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} stroke="currentColor" fill="none" />
-            </svg>
-          </Link>
+      {/* Desktop top bar — logo on the left, bell on the right */}
+      <header className="hidden lg:flex fixed top-0 left-0 right-0 h-14 bg-[#004854] border-b border-white/10 z-40 items-center px-4 gap-4 pt-[env(safe-area-inset-top)]">
+        <Link href="/client" className="shrink-0 flex items-center" aria-label="Home">
+          <Image src="/logo.svg" alt="HAMZA Deboekhouder" width={130} height={34} className="brightness-0 invert" priority />
+        </Link>
+        <div className="flex-1" />
+        <div className="shrink-0">
+          <NotificationBell variant="light" />
         </div>
+      </header>
 
+      {/* Desktop left sidebar — starts below the top bar */}
+      <aside className="hidden lg:flex w-14 bg-[#004854] flex-col fixed top-14 left-0 bottom-0 z-30 shadow-[4px_0_20px_-10px_rgba(0,0,0,0.3)]">
         {/* Main nav */}
-        <div className="flex-1 overflow-y-auto overflow-x-visible mt-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden pt-1">
           <SideRail items={railItems} activeKey={activeSection} />
         </div>
 
-        {/* Bottom — bell + logout */}
-        <div className="border-t border-white/10 px-1.5 py-2 space-y-1">
-          <div className="h-11 flex items-center justify-start">
-            <NotificationBell variant="light" />
-          </div>
+        {/* Bottom — logout */}
+        <div className="border-t border-white/10 px-1.5 py-2">
           <button onClick={handleLogout} aria-label="Uitloggen"
             onMouseEnter={() => setLogoutHover(true)}
             onMouseLeave={() => setLogoutHover(false)}
             className={`group relative flex items-center h-11 rounded-xl overflow-hidden whitespace-nowrap transition-[width,background-color,color] duration-300 ease-out ${
-              logoutHover ? "bg-red-500/15 text-red-300 w-[188px] shadow-[0_6px_20px_-8px_rgba(0,0,0,0.6)] z-30" : "bg-transparent text-white/55 w-11"
+              logoutHover ? "bg-red-500/15 text-red-300 w-[200px] shadow-[0_10px_30px_-8px_rgba(0,0,0,0.55)] ring-1 ring-white/5 z-30" : "bg-transparent text-white/55 w-11"
             }`}>
             <span className="w-11 h-11 shrink-0 flex items-center justify-center">
               <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -271,7 +270,7 @@ function ClientLayoutInner({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 min-h-screen bg-[#F5F7FA] pt-14 lg:pt-0 lg:ml-14">
+      <main className="flex-1 min-h-screen bg-[#F5F7FA] pt-14 lg:pt-14 lg:ml-14">
         {children}
       </main>
     </div>

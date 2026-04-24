@@ -43,7 +43,6 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
   const { activeAdministration, administrations, selectAdministration } = useAdministration();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
-  const [adminHover, setAdminHover] = useState(false);
   const [logoutHover, setLogoutHover] = useState(false);
   const adminMenuRef = useRef<HTMLDivElement>(null);
   const lastRefresh = useRef(0);
@@ -517,57 +516,37 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen">
-      {/* Desktop left sidebar — compact icon rail that expands items
-          rightward on hover. Overflow-visible is critical: the expanding
-          hover buttons extend into the main content area. */}
-      <aside className="hidden lg:flex w-14 bg-[#004854] flex-col fixed top-0 left-0 h-full z-40 pt-[env(safe-area-inset-top)] overflow-visible shadow-[4px_0_20px_-10px_rgba(0,0,0,0.3)]">
-        {/* Logo — minimal mark that fits the narrow rail */}
-        <div className="flex items-center justify-center h-14 border-b border-white/10 shrink-0">
-          <Link href="/bookkeeper" aria-label="Home" className="w-9 h-9 rounded-lg bg-gradient-to-br from-[#00AFCB] to-[#008FA8] flex items-center justify-center shadow-[0_2px_8px_rgba(0,175,203,0.35)]">
-            <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M4 21V5a2 2 0 012-2h4a2 2 0 012 2v3h6a2 2 0 012 2v11H4z M8 10v4M16 12v6" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} stroke="currentColor" fill="none" />
-            </svg>
-          </Link>
-        </div>
+      {/* Desktop top bar — logo on the left, admin switcher next to it,
+          notification bell on the right. Sits above the sidebar and the
+          main content. */}
+      <header className="hidden lg:flex fixed top-0 left-0 right-0 h-14 bg-[#004854] border-b border-white/10 z-40 items-center px-4 gap-4 pt-[env(safe-area-inset-top)]">
+        <Link href="/bookkeeper" className="shrink-0 flex items-center" aria-label="Home">
+          <Image src="/logo.svg" alt="HAMZA Deboekhouder" width={130} height={34} className="brightness-0 invert" priority />
+        </Link>
 
-        {/* Admin switcher — SideRail-style item. Click toggles dropdown. */}
-        <div className="relative px-1.5 pt-2" ref={adminMenuRef}>
+        {/* Admin switcher — next to the logo, opens a dropdown */}
+        <div className="relative shrink-0" ref={adminMenuRef}>
           {activeAdministration ? (
             <button onClick={() => setAdminMenuOpen((v) => !v)}
-              onMouseEnter={() => setAdminHover(true)}
-              onMouseLeave={() => setAdminHover(false)}
-              aria-label="Administratie wisselen"
-              className={`group relative flex items-center h-11 rounded-xl overflow-hidden whitespace-nowrap transition-[width,background-color] duration-300 ease-out ${
-                adminMenuOpen || adminHover
-                  ? "bg-[#003845] text-white w-[188px] shadow-[0_6px_20px_-8px_rgba(0,0,0,0.6)] z-30"
-                  : "bg-transparent text-white/80 w-11 z-10"
-              }`}>
-              <span className="w-11 h-11 shrink-0 flex items-center justify-center">
-                <span className="w-7 h-7 rounded-full bg-gradient-to-br from-[#00AFCB] to-[#008FA8] text-white text-[11px] font-bold flex items-center justify-center shadow-[0_2px_6px_rgba(0,175,203,0.4)] ring-1 ring-white/20">
-                  {(activeAdministration.company || activeAdministration.name).charAt(0).toUpperCase()}
-                </span>
+              className="flex items-center gap-2.5 pl-1.5 pr-3 py-1 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 hover:border-white/20 transition-all max-w-[260px] group">
+              <span className="w-7 h-7 rounded-full bg-gradient-to-br from-[#00AFCB] to-[#008FA8] text-white text-xs font-bold flex items-center justify-center shrink-0 shadow-[0_2px_6px_rgba(0,175,203,0.4)] ring-1 ring-white/20">
+                {(activeAdministration.company || activeAdministration.name).charAt(0).toUpperCase()}
               </span>
-              <div className="min-w-0 text-left pr-2 flex-1 transition-opacity duration-200" style={{ opacity: adminMenuOpen || adminHover ? 1 : 0 }}>
+              <div className="min-w-0 text-left">
                 <p className="text-[9px] text-white/45 leading-none uppercase tracking-wider">Administratie</p>
-                <p className="text-[11px] font-semibold text-white truncate leading-tight mt-0.5">{activeAdministration.company || activeAdministration.name}</p>
+                <p className="text-xs font-semibold text-white truncate leading-tight mt-0.5">{activeAdministration.company || activeAdministration.name}</p>
               </div>
-              <svg className="w-3 h-3 text-white/55 shrink-0 mr-2 transition-opacity duration-200" style={{ opacity: adminMenuOpen || adminHover ? 1 : 0 }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+              <svg className="w-3 h-3 text-white/45 shrink-0 group-hover:text-white/70 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
             </button>
           ) : (
-            <Link href="/bookkeeper?section=administraties" aria-label="Selecteer administratie"
-              onMouseEnter={() => setAdminHover(true)}
-              onMouseLeave={() => setAdminHover(false)}
-              className={`group relative flex items-center h-11 rounded-xl overflow-hidden whitespace-nowrap transition-[width,background-color] duration-300 ease-out ${
-                adminHover ? "bg-amber-500/25 w-[188px]" : "bg-amber-500/15 w-11"
-              } text-amber-200 border border-amber-400/30`}>
-              <span className="w-11 h-11 shrink-0 flex items-center justify-center">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-              </span>
-              <span className="text-[12px] font-medium pr-4 transition-opacity duration-200" style={{ opacity: adminHover ? 1 : 0 }}>Selecteer</span>
+            <Link href="/bookkeeper?section=administraties"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-200 hover:bg-amber-500/30 transition-colors">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+              <span className="text-xs font-medium">Selecteer administratie</span>
             </Link>
           )}
           {adminMenuOpen && activeAdministration && (
-            <div className="absolute left-[calc(100%+4px)] top-2 w-72 bg-white border border-gray-200 rounded-xl shadow-xl py-1.5 z-[9999] max-h-[70vh] overflow-y-auto">
+            <div className="absolute left-0 top-full mt-2 w-72 bg-white border border-gray-200 rounded-xl shadow-xl py-1.5 z-[9999] max-h-[70vh] overflow-y-auto">
               <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Wisselen naar</p>
               {administrations.length === 0 && <p className="px-3 py-2 text-xs text-gray-400">Geen administraties beschikbaar.</p>}
               {administrations.map((adm) => (
@@ -597,21 +576,30 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
           )}
         </div>
 
-        {/* Main nav — icon-only rail, expands rightward on hover */}
-        <div className="flex-1 overflow-y-auto overflow-x-visible mt-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex-1" />
+
+        {/* Notification bell top-right */}
+        <div className="shrink-0">
+          <NotificationBell variant="light" />
+        </div>
+      </header>
+
+      {/* Desktop left sidebar — compact icon rail, starts BELOW the top
+          bar. Items expand rightward on hover via portal so the label
+          always renders above the main content, never clipped. */}
+      <aside className="hidden lg:flex w-14 bg-[#004854] flex-col fixed top-14 left-0 bottom-0 z-30 shadow-[4px_0_20px_-10px_rgba(0,0,0,0.3)]">
+        {/* Main nav */}
+        <div className="flex-1 overflow-y-auto overflow-x-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden pt-1">
           <SideRail items={railItems} activeKey={activeSection} />
         </div>
 
-        {/* Bottom utilities — bell + logout share the rail aesthetic */}
-        <div className="border-t border-white/10 px-1.5 py-2 space-y-1">
-          <div className="h-11 flex items-center justify-start">
-            <NotificationBell variant="light" />
-          </div>
+        {/* Bottom — logout */}
+        <div className="border-t border-white/10 px-1.5 py-2">
           <button onClick={handleLogout} aria-label="Uitloggen"
             onMouseEnter={() => setLogoutHover(true)}
             onMouseLeave={() => setLogoutHover(false)}
             className={`group relative flex items-center h-11 rounded-xl overflow-hidden whitespace-nowrap transition-[width,background-color,color] duration-300 ease-out ${
-              logoutHover ? "bg-red-500/15 text-red-300 w-[188px] shadow-[0_6px_20px_-8px_rgba(0,0,0,0.6)] z-30" : "bg-transparent text-white/55 w-11"
+              logoutHover ? "bg-red-500/15 text-red-300 w-[200px] shadow-[0_10px_30px_-8px_rgba(0,0,0,0.55)] ring-1 ring-white/5 z-30" : "bg-transparent text-white/55 w-11"
             }`}>
             <span className="w-11 h-11 shrink-0 flex items-center justify-center">
               <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
@@ -666,7 +654,7 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 min-h-screen bg-[#F5F7FA] pt-14 lg:pt-0 lg:ml-14">
+      <main className="flex-1 min-h-screen bg-[#F5F7FA] pt-14 lg:pt-14 lg:ml-14">
         {children}
       </main>
     </div>
