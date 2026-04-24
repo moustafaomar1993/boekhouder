@@ -35,6 +35,27 @@ const sectionTitles: Record<string, string> = {
   agenda: "Agenda", fiscaal: "BTW & Fiscaal", instellingen: "Instellingen",
 };
 
+// Per-module gradient — each module gets a distinct "app icon" color so
+// the top dock reads at a glance. Kept deliberately muted: business-app
+// seriousness first, playful second.
+const MODULE_COLORS: Record<string, string> = {
+  administraties: "from-[#00AFCB] to-[#008FA8]",
+  dashboard:      "from-slate-600 to-slate-700",
+  verkoop:        "from-emerald-500 to-emerald-600",
+  inkoop:         "from-amber-500 to-orange-600",
+  bank:           "from-sky-500 to-blue-600",
+  kas:            "from-green-500 to-green-600",
+  memoriaal:      "from-violet-500 to-purple-600",
+  boekingen:      "from-teal-500 to-teal-700",
+  afletteren:     "from-cyan-500 to-cyan-600",
+  grootboek:      "from-blue-500 to-indigo-600",
+  taken:          "from-rose-500 to-red-600",
+  berichten:      "from-pink-500 to-rose-600",
+  agenda:         "from-orange-500 to-amber-600",
+  fiscaal:        "from-purple-500 to-fuchsia-600",
+  instellingen:   "from-slate-500 to-slate-600",
+};
+
 function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -44,6 +65,11 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
   const adminMenuRef = useRef<HTMLDivElement>(null);
   const lastRefresh = useRef(0);
+  // Dock magnification state — tracks the cursor's X position within the
+  // top nav so each icon can compute its own distance-based scale. Null
+  // means the cursor isn't over the dock → icons are at rest.
+  const [dockMouseX, setDockMouseX] = useState<number | null>(null);
+  const [dockHoveredKey, setDockHoveredKey] = useState<string | null>(null);
   const [sidebarCounts, setSidebarCounts] = useState<{ toProcess: number; overdue: number; inkoopNew: number; boekingenNew: number; boekingenOldQ: number }>({ toProcess: 0, overdue: 0, inkoopNew: 0, boekingenNew: 0, boekingenOldQ: 0 });
   // Generic per-module hover popup state. `hoveredModule` identifies which sidebar
   // module the popup belongs to; `modulePopupPos` is derived from that module's
@@ -62,7 +88,16 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
   // widths; its elements return a zero bounding rect which, if written here,
   // would push the popup to (0, 0) in the top-left corner of the viewport.
   const moduleLinkRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const desktopAsideRef = useRef<HTMLElement | null>(null);
+
+  // Shared shortcut-navigation helper for badge click-throughs. Prevents the
+  // default Link navigation (it was mounted inside a Link during the old
+  // sidebar layout) and explicitly pushes the target route.
+  const shortcutNav = (href: string) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setMobileMenuOpen(false);
+    router.push(href);
+  };
   // 8 px gap between the sidebar's right edge and the popup's left edge.
   // Measured from the sidebar edge — not from the popup's previous position
   // and not from the icon — so the popup sits just outside the sidebar.
@@ -174,22 +209,22 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
     }).catch(() => {});
   }, [activeAdministration]);
 
-  // Open the hover popup for a given sidebar module.
-  //   - vertical: top edge of the popup == top edge of the active module button
-  //   - horizontal: 48 px to the right of the desktop sidebar's right edge
-  // If either reference element is missing or has a zero rect (e.g. the mobile
-  // sidebar is currently `display:none`), we bail out instead of guessing.
+  // Open the hover popup for a module icon in the top dock.
+  //   - vertical:   drops below the icon (8px gap)
+  //   - horizontal: centered under the icon, clamped to stay in the viewport
+  // If the ref is missing or has a zero rect, we bail out instead of guessing.
   function openModulePopup(moduleKey: string) {
     if (moduleHoverTimeout.current) { clearTimeout(moduleHoverTimeout.current); moduleHoverTimeout.current = null; }
     const el = moduleLinkRefs.current[moduleKey];
-    const aside = desktopAsideRef.current;
-    if (!el || !aside) return;
+    if (!el) return;
     const btnRect = el.getBoundingClientRect();
-    const asideRect = aside.getBoundingClientRect();
-    if (btnRect.height === 0 || asideRect.width === 0) return;
+    if (btnRect.height === 0 || btnRect.width === 0) return;
+    const POPUP_W = 288; // w-72
+    const viewportW = typeof window !== "undefined" ? window.innerWidth : 1200;
+    const left = Math.max(8, Math.min(viewportW - POPUP_W - 8, btnRect.left + btnRect.width / 2 - POPUP_W / 2));
     setModulePopupPos({
-      top: btnRect.top,
-      left: asideRect.right + MODULE_POPUP_RIGHT_OFFSET,
+      top: btnRect.bottom + MODULE_POPUP_RIGHT_OFFSET,
+      left,
     });
     setHoveredModule(moduleKey);
   }
@@ -212,14 +247,6 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
         <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-widest text-white/30">Boekhouder</p>
         {sidebarItems.map((item) => {
           const isActive = activeSection === item.key;
-          // Shortcut navigation for the sidebar count badges — bypasses the
-          // parent Link and jumps straight to a pre-filtered view.
-          const shortcutNav = (href: string) => (e: React.MouseEvent) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setMobileMenuOpen(false);
-            router.push(href);
-          };
           const linkEl = (
             <Link href={item.href} onClick={() => {
               setMobileMenuOpen(false);
@@ -442,51 +469,68 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
 
   const currentTitle = sectionTitles[activeSection] || "";
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // Dock magnification — macOS-inspired smooth-scale interaction
+  // ═══════════════════════════════════════════════════════════════════════
+  // Each icon's scale is derived from its horizontal distance to the cursor.
+  // Cosine-based falloff (smoothstep) gives a soft, premium feel instead of
+  // abrupt linear scaling. When the cursor leaves the dock entirely we drop
+  // back to 1× with a gentle ease-out transition.
+  const DOCK_RANGE = 110; // px radius of the magnification effect
+  const DOCK_MAX_SCALE = 1.5;
+  function computeDockScale(iconEl: HTMLElement | null): number {
+    if (dockMouseX === null || !iconEl) return 1;
+    const r = iconEl.getBoundingClientRect();
+    if (r.width === 0) return 1;
+    const center = r.left + r.width / 2;
+    const distance = Math.abs(center - dockMouseX);
+    if (distance > DOCK_RANGE) return 1;
+    const t = 1 - distance / DOCK_RANGE;
+    const smooth = 0.5 - 0.5 * Math.cos(t * Math.PI);
+    return 1 + (DOCK_MAX_SCALE - 1) * smooth;
+  }
+
+  async function handleLogout() {
+    setMobileMenuOpen(false);
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/login");
+  }
+
   return (
     <div className="flex min-h-screen">
-      {/* Desktop sidebar */}
-      <aside ref={desktopAsideRef} className="hidden lg:flex w-[250px] bg-[#004854] flex-col fixed top-0 left-0 h-full z-40">
-        <div className="px-5 py-5 border-b border-white/10">
-          <Link href="/bookkeeper" className="block">
-            <Image src="/logo.svg" alt="HAMZA Deboekhouder" width={150} height={39} className="brightness-0 invert" priority />
+      {/* Desktop top navigation — a single premium nav bar containing the
+          logo, active-administration switcher, the module dock and the
+          global notification bell. Replaces the old left sidebar. */}
+      <header className="hidden lg:flex fixed top-0 left-0 right-0 z-40 h-[84px] bg-gradient-to-b from-[#003942] to-[#004854] border-b border-black/20 shadow-[0_6px_24px_-10px_rgba(0,0,0,0.45)] items-center gap-4 px-5 pt-[env(safe-area-inset-top)]">
+        {/* LEFT — logo + admin switcher */}
+        <div className="flex items-center gap-3 shrink-0 min-w-0">
+          <Link href="/bookkeeper" className="shrink-0">
+            <Image src="/logo.svg" alt="HAMZA Deboekhouder" width={120} height={31} className="brightness-0 invert" priority />
           </Link>
-        </div>
-        {buildNavContent("desktop")}
-      </aside>
-
-      {/* Desktop top header bar */}
-      <div className="hidden lg:flex fixed top-0 left-[250px] right-0 h-14 bg-white border-b border-gray-200 z-30 items-center justify-between px-6">
-        <div className="flex items-center gap-3 min-w-0">
-          <h1 className="text-base font-semibold text-[#3C2C1E] shrink-0">{currentTitle}</h1>
-        </div>
-        <div className="flex items-center gap-3">
-          {/* Active administration switcher */}
           <div className="relative" ref={adminMenuRef}>
             {activeAdministration ? (
               <button onClick={() => setAdminMenuOpen((v) => !v)}
-                className="flex items-center gap-2 pl-2 pr-2.5 py-1.5 rounded-lg border border-gray-200 hover:border-[#00AFCB]/40 hover:bg-[#E6F9FC]/40 transition-colors max-w-[260px]">
-                <span className="w-6 h-6 rounded bg-[#004854] text-white text-[11px] font-bold flex items-center justify-center shrink-0">
+                className="flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors max-w-[240px]">
+                <span className="w-7 h-7 rounded-lg bg-[#00AFCB] text-white text-xs font-bold flex items-center justify-center shrink-0">
                   {(activeAdministration.company || activeAdministration.name).charAt(0).toUpperCase()}
                 </span>
                 <div className="min-w-0 text-left">
-                  <p className="text-[10px] text-gray-400 leading-none">Actieve administratie</p>
-                  <p className="text-xs font-medium text-[#004854] truncate">{activeAdministration.company || activeAdministration.name}</p>
+                  <p className="text-[9px] text-white/50 leading-none uppercase tracking-wider">Administratie</p>
+                  <p className="text-xs font-medium text-white truncate leading-tight mt-0.5">{activeAdministration.company || activeAdministration.name}</p>
                 </div>
-                <svg className="w-3.5 h-3.5 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                <svg className="w-3 h-3 text-white/50 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
               </button>
             ) : (
-              <Link href="/bookkeeper?section=administraties" onClick={() => setAdminMenuOpen(false)}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 hover:bg-amber-100 transition-colors">
+              <Link href="/bookkeeper?section=administraties"
+                className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-200 hover:bg-amber-500/30 transition-colors">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
                 <span className="text-xs font-medium">Selecteer administratie</span>
               </Link>
             )}
             {adminMenuOpen && activeAdministration && (
-              <div className="absolute right-0 mt-1 w-72 bg-white border border-gray-200 rounded-xl shadow-lg py-1.5 z-[9999] max-h-[70vh] overflow-y-auto">
+              <div className="absolute left-0 top-full mt-2 w-72 bg-white border border-gray-200 rounded-xl shadow-xl py-1.5 z-[9999] max-h-[70vh] overflow-y-auto">
                 <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Wisselen naar</p>
-                {administrations.length === 0 && (
-                  <p className="px-3 py-2 text-xs text-gray-400">Geen administraties beschikbaar.</p>
-                )}
+                {administrations.length === 0 && <p className="px-3 py-2 text-xs text-gray-400">Geen administraties beschikbaar.</p>}
                 {administrations.map((adm) => (
                   <button key={adm.id}
                     onClick={() => { selectAdministration(adm.id); setAdminMenuOpen(false); }}
@@ -513,9 +557,128 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
               </div>
             )}
           </div>
-          <NotificationBell variant="light" />
         </div>
-      </div>
+
+        {/* CENTER — dock */}
+        <div className="flex-1 flex justify-center min-w-0">
+          <div
+            onMouseMove={(e) => setDockMouseX(e.clientX)}
+            onMouseLeave={() => { setDockMouseX(null); setDockHoveredKey(null); }}
+            className="flex items-end gap-1 px-2.5 py-1.5 rounded-2xl bg-black/20 backdrop-blur-sm border border-white/[0.06] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)] max-w-full overflow-x-auto overflow-y-visible [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {sidebarItems.map((item) => {
+              const isActive = activeSection === item.key;
+              const colors = MODULE_COLORS[item.key] || "from-slate-500 to-slate-600";
+              const el = moduleLinkRefs.current[item.key] || null;
+              const scale = computeDockScale(el);
+              const isHovered = dockHoveredKey === item.key;
+              return (
+                <div key={item.key}
+                  ref={(el) => { moduleLinkRefs.current[item.key] = el; }}
+                  className="relative shrink-0"
+                  style={{
+                    transform: `scale(${scale})`,
+                    transformOrigin: "center bottom",
+                    transition: dockMouseX === null
+                      ? "transform 260ms cubic-bezier(0.22, 1, 0.36, 1)"
+                      : "transform 80ms linear",
+                    willChange: "transform",
+                  }}
+                >
+                  {/* Tooltip above the hovered icon, macOS-dock-style */}
+                  {isHovered && (
+                    <span className="absolute left-1/2 -translate-x-1/2 bottom-[calc(100%+6px)] px-2 py-1 bg-black/80 text-white text-[11px] font-medium rounded-md whitespace-nowrap pointer-events-none backdrop-blur-sm shadow-lg">
+                      {item.label}
+                    </span>
+                  )}
+                  <Link href={item.href}
+                    onClick={() => {
+                      if (item.key === "verkoop" && typeof window !== "undefined") {
+                        window.dispatchEvent(new CustomEvent("bookkeeper:verkoop:reset"));
+                      }
+                    }}
+                    onMouseEnter={() => setDockHoveredKey(item.key)}
+                    onMouseLeave={() => setDockHoveredKey(null)}
+                    title={item.label}
+                    className={`relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br ${colors} shadow-[0_2px_8px_rgba(0,0,0,0.25)] text-white ${isActive ? "ring-2 ring-white/40" : "ring-0"}`}
+                  >
+                    <span className="w-[18px] h-[18px] [&>svg]:w-[18px] [&>svg]:h-[18px] flex">{item.icon}</span>
+                    {/* Soft top-gloss like a real app icon */}
+                    <span className="pointer-events-none absolute inset-0 rounded-xl bg-gradient-to-b from-white/20 to-transparent opacity-60" />
+                  </Link>
+
+                  {/* Active indicator — running-app dot */}
+                  {isActive && <span className="absolute left-1/2 -translate-x-1/2 -bottom-1.5 w-1 h-1 rounded-full bg-white/90 shadow-[0_0_6px_rgba(255,255,255,0.6)]" />}
+
+                  {/* Module-specific notification badges (hover → popup).
+                      Click-through + badge-specific popup content unchanged. */}
+                  {item.key === "verkoop" && (sidebarCounts.toProcess > 0 || sidebarCounts.overdue > 0) && (
+                    <span className="absolute -top-1.5 -right-1.5 flex items-center gap-0.5">
+                      {sidebarCounts.toProcess > 0 && (
+                        <span role="button" tabIndex={0}
+                          onMouseEnter={() => { setPopupIntent("toBook"); openModulePopup("verkoop"); }}
+                          onMouseLeave={scheduleCloseModulePopup}
+                          onClick={shortcutNav("/bookkeeper?section=verkoop&tab=boeken&filter=to_book")}
+                          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") shortcutNav("/bookkeeper?section=verkoop&tab=boeken&filter=to_book")(e as unknown as React.MouseEvent); }}
+                          title="Nieuwe / te boeken verkoopfacturen"
+                          className="min-w-[16px] h-4 flex items-center justify-center rounded-full bg-blue-500 ring-2 ring-[#004854] text-[9px] font-bold text-white leading-none px-1 hover:bg-blue-400 cursor-pointer">
+                          {sidebarCounts.toProcess}
+                        </span>
+                      )}
+                      {sidebarCounts.overdue > 0 && (
+                        <span role="button" tabIndex={0}
+                          onMouseEnter={() => { setPopupIntent("overdue"); openModulePopup("verkoop"); }}
+                          onMouseLeave={scheduleCloseModulePopup}
+                          onClick={shortcutNav("/bookkeeper?section=verkoop&tab=debiteurenbeheer&filter=overdue")}
+                          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") shortcutNav("/bookkeeper?section=verkoop&tab=debiteurenbeheer&filter=overdue")(e as unknown as React.MouseEvent); }}
+                          title="Verlopen debiteurenfacturen"
+                          className="min-w-[16px] h-4 flex items-center justify-center rounded-full bg-red-500 ring-2 ring-[#004854] text-[9px] font-bold text-white leading-none px-1 hover:bg-red-400 cursor-pointer">
+                          {sidebarCounts.overdue}
+                        </span>
+                      )}
+                    </span>
+                  )}
+                  {item.key === "inkoop" && sidebarCounts.inkoopNew > 0 && (
+                    <span
+                      onMouseEnter={() => { setPopupIntent(null); openModulePopup("inkoop"); }}
+                      onMouseLeave={scheduleCloseModulePopup}
+                      title="Nieuw geüploade inkoopdocumenten"
+                      className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-blue-500 ring-2 ring-[#004854] text-[9px] font-bold text-white leading-none px-1 cursor-pointer hover:bg-blue-400">{sidebarCounts.inkoopNew}</span>
+                  )}
+                  {item.key === "boekingen" && (sidebarCounts.boekingenNew > 0 || sidebarCounts.boekingenOldQ > 0) && (
+                    <span className="absolute -top-1.5 -right-1.5 flex items-center gap-0.5">
+                      {sidebarCounts.boekingenNew > 0 && (
+                        <span
+                          onMouseEnter={() => { setPopupIntent(null); openModulePopup("boekingen"); }}
+                          onMouseLeave={scheduleCloseModulePopup}
+                          title="Geboekt"
+                          className="min-w-[16px] h-4 flex items-center justify-center rounded-full bg-blue-500 ring-2 ring-[#004854] text-[9px] font-bold text-white leading-none px-1 cursor-pointer hover:bg-blue-400">{sidebarCounts.boekingenNew}</span>
+                      )}
+                      {sidebarCounts.boekingenOldQ > 0 && (
+                        <span
+                          onMouseEnter={() => { setPopupIntent(null); openModulePopup("boekingen"); }}
+                          onMouseLeave={scheduleCloseModulePopup}
+                          title="Ouder kwartaal — verwerk voor BTW-aangifte"
+                          className="min-w-[16px] h-4 flex items-center justify-center rounded-full bg-red-500 ring-2 ring-[#004854] text-[9px] font-bold text-white leading-none px-1 cursor-pointer hover:bg-red-400">{sidebarCounts.boekingenOldQ}</span>
+                      )}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* RIGHT — notification bell + section title + logout */}
+        <div className="flex items-center gap-1 shrink-0">
+          <span className="text-[10px] uppercase tracking-wider text-white/40 font-semibold px-2 hidden xl:inline">{currentTitle}</span>
+          <NotificationBell variant="light" />
+          <button onClick={handleLogout} title="Uitloggen"
+            className="p-2 rounded-lg text-white/50 hover:text-red-300 hover:bg-red-500/10 transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+          </button>
+        </div>
+      </header>
 
       {/* Mobile header */}
       <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-[#004854] border-b border-white/10 pt-[env(safe-area-inset-top)]">
@@ -562,7 +725,7 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 lg:ml-[250px] min-h-screen bg-[#F5F7FA] pt-14 lg:pt-14">
+      <main className="flex-1 min-h-screen bg-[#F5F7FA] pt-14 lg:pt-[84px]">
         {children}
       </main>
     </div>
