@@ -534,8 +534,10 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        {/* CENTER — dock */}
-        <div className="flex-1 flex justify-center min-w-0 overflow-x-auto no-scrollbar">
+        {/* CENTER — dock. overflow-visible is critical: icons magnify DOWN
+            into the content area, and the hover tooltip sits even further
+            below. Any vertical clipping here would cut them off. */}
+        <div className="flex-1 flex justify-center min-w-0 overflow-visible">
           <TopDock
             activeKey={activeSection}
             items={sidebarItems.map<TopDockItem>((item) => {

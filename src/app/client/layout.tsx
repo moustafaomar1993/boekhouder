@@ -221,8 +221,10 @@ function ClientLayoutInner({ children }: { children: React.ReactNode }) {
           </Link>
         </div>
 
-        {/* CENTER — dock */}
-        <div className="flex-1 flex justify-center min-w-0 overflow-x-auto no-scrollbar">
+        {/* CENTER — dock. overflow-visible is critical: icons magnify DOWN
+            into the content area, and the hover tooltip sits even further
+            below. Any vertical clipping here would cut them off. */}
+        <div className="flex-1 flex justify-center min-w-0 overflow-visible">
           <TopDock items={dockItems} activeKey={activeSection} />
         </div>
 

@@ -79,7 +79,7 @@ export function TopDock({ items, activeKey, iconSize = 40 }: TopDockProps) {
     <div
       onMouseMove={(e) => setMouseX(e.clientX)}
       onMouseLeave={() => { setMouseX(null); setHoveredKey(null); }}
-      className="flex items-end gap-[9px] px-3 py-2 rounded-[18px] bg-gradient-to-b from-white/[0.06] to-white/[0.02] backdrop-blur-xl border border-white/10 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08),inset_0_-1px_0_0_rgba(0,0,0,0.2),0_12px_40px_-14px_rgba(0,0,0,0.6)]"
+      className="flex items-start gap-[9px] px-3 py-2 rounded-[18px] bg-gradient-to-b from-white/[0.06] to-white/[0.02] backdrop-blur-xl border border-white/10 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08),inset_0_-1px_0_0_rgba(0,0,0,0.2),0_12px_40px_-14px_rgba(0,0,0,0.6)]"
     >
       {items.map((item) => {
         const scale = computeScale(item.key);
@@ -94,7 +94,10 @@ export function TopDock({ items, activeKey, iconSize = 40 }: TopDockProps) {
             className="relative shrink-0"
             style={{
               transform: `scale(${scale})`,
-              transformOrigin: "center bottom",
+              // Inverted dock: icons grow DOWNWARD (into the content area
+              // below the nav) instead of upward. The icon's top stays
+              // anchored to the top of the dock; the bottom extends.
+              transformOrigin: "center top",
               transition:
                 mouseX === null
                   ? "transform 280ms cubic-bezier(0.22, 1, 0.36, 1)"
@@ -102,23 +105,24 @@ export function TopDock({ items, activeKey, iconSize = 40 }: TopDockProps) {
               willChange: "transform",
             }}
           >
-            {/* Tooltip above the hovered icon. pointer-events-none prevents
-                flicker when the cursor drifts upward. */}
+            {/* Tooltip BELOW the hovered icon, in the content area —
+                matches the inverted-dock direction. Pointer-events-none
+                prevents flicker when the cursor drifts downward. */}
             <span
-              className={`absolute left-1/2 -translate-x-1/2 bottom-[calc(100%+10px)] px-2.5 py-1 text-white text-[11px] font-medium rounded-lg whitespace-nowrap pointer-events-none shadow-[0_8px_24px_-6px_rgba(0,0,0,0.6)] transition-all duration-150 ${
-                isHovered ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"
+              className={`absolute left-1/2 -translate-x-1/2 top-[calc(100%+18px)] px-2.5 py-1 text-white text-[11px] font-medium rounded-lg whitespace-nowrap pointer-events-none shadow-[0_8px_24px_-6px_rgba(0,0,0,0.6)] transition-opacity duration-150 ${
+                isHovered ? "opacity-100" : "opacity-0"
               }`}
               style={{ background: "rgba(10, 14, 18, 0.94)", backdropFilter: "blur(10px)", border: "1px solid rgba(255,255,255,0.08)" }}
             >
-              {item.label}
               <span
-                className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0"
+                className="absolute left-1/2 -translate-x-1/2 bottom-full w-0 h-0"
                 style={{
                   borderLeft: "5px solid transparent",
                   borderRight: "5px solid transparent",
-                  borderTop: "5px solid rgba(10, 14, 18, 0.94)",
+                  borderBottom: "5px solid rgba(10, 14, 18, 0.94)",
                 }}
               />
+              {item.label}
             </span>
 
             <Link
