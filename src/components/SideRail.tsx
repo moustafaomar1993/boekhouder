@@ -25,54 +25,95 @@ function widthForDistance(distance: number): number {
   return COLLAPSED + (EXPANDED - COLLAPSED) * WAVE_SCALES[distance];
 }
 
+interface SideRailProps {
+  items: SideRailItem[];
+  activeKey?: string;
+  /**
+   * When true the sidebar is in its wide labelled mode: items render as
+   * full-width rows with icon + label + badge, no wave hover. When false
+   * (default) the sidebar stays at icon-only width and the premium wave
+   * hover takes over.
+   */
+  expanded?: boolean;
+}
+
 /**
- * Left-side icon rail with a "wave" expand-on-hover behaviour.
+ * Sidebar rail with two render modes:
  *
- * Layout strategy:
- *   - Each rail tile is a 44 × 44 placeholder in the rail's flow. It
- *     reserves vertical space and exposes `data-rail-item` so the
- *     bookkeeper layout's module-popups can anchor to a tile's
- *     coordinates.
- *   - For every item a sibling "pill" is rendered via createPortal at
- *     the tile's `getBoundingClientRect()` coords. The pill carries the
- *     visible chrome (background, label, icon, badge) and grows wider
- *     based on its distance to the hovered tile. Because pills live in
- *     `document.body` they cannot be clipped by the rail's
- *     `overflow-y-auto` scroller — same trick we used before, just
- *     applied to every item instead of only the hovered one.
+ *   - **Collapsed (default)** — narrow icon rail with the wave hover
+ *     effect (100 / 75 / 50 / 25 % expansion around the cursor, label
+ *     revealed inside an expanding portal pill). See `CollapsedWaveRail`.
+ *   - **Expanded** — wide labelled list, no wave; each item renders
+ *     inline as `[icon] [label] [badge]`. See `ExpandedRail`.
  *
- * Wave behaviour:
- *   - Hovered tile = 100 % expansion (200 px wide).
- *   - First neighbours = 75 %  ≈ 161 px.
- *   - Second neighbours = 50 % ≈ 122 px.
- *   - Third neighbours = 25 %  ≈  83 px.
- *   - Everything else stays at 44 px (icon-only).
- *   - A CSS `transition: width` on every pill turns cursor movement
- *     along the rail into a continuous ripple — no separate enter/leave
- *     keyframes.
- *
- * Icon-and-label motion (the requested premium reveal):
- *   - The pill is a flex row laid out as `[ label (flex-1) ][ icon (w-11 fixed) ]`.
- *   - As the pill widens, the icon stays anchored to the right and
- *     visually slides RIGHT while the flex-1 label area opens up on
- *     the left. The label fades in only for the hovered tile, with an
- *     80 ms delay so it feels REVEALED by the expansion rather than
- *     popped in. Neighbour pills stay un-labelled — they're supporting
- *     motion, not duplicate hover states.
+ * The two are swapped wholesale rather than morphing one into the other
+ * — the interaction patterns are too different to share markup, and the
+ * surrounding aside already animates its width so the visual transition
+ * feels continuous from the user's perspective.
  */
-export function SideRail({ items, activeKey }: { items: SideRailItem[]; activeKey?: string }) {
+export function SideRail({ items, activeKey, expanded = false }: SideRailProps) {
+  if (expanded) return <ExpandedRail items={items} activeKey={activeKey} />;
+  return <CollapsedWaveRail items={items} activeKey={activeKey} />;
+}
+
+/* -------------------------------------------------------------------- */
+/* Expanded mode — labelled rows, simple bg hover.                       */
+/* -------------------------------------------------------------------- */
+function ExpandedRail({ items, activeKey }: { items: SideRailItem[]; activeKey?: string }) {
+  return (
+    <nav className="flex flex-col gap-0.5 px-2 py-2">
+      {items.map((item) => {
+        const isActive = activeKey === item.key;
+        return (
+          <div
+            key={item.key}
+            data-rail-item={item.key}
+            className="relative"
+          >
+            <Link
+              href={item.href}
+              onClick={item.onSelect}
+              aria-label={item.label}
+              className={`relative flex items-center gap-3 h-10 pl-3 pr-2 rounded-lg text-[13px] font-medium transition-colors duration-150 ${
+                isActive
+                  ? "bg-[#00AFCB]/20 text-white"
+                  : "text-white/65 hover:bg-white/5 hover:text-white"
+              }`}
+            >
+              {isActive && (
+                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-[#00AFCB] rounded-r-full" />
+              )}
+              <span className="w-[18px] h-[18px] shrink-0 flex items-center justify-center [&>svg]:w-[18px] [&>svg]:h-[18px]">
+                {item.icon}
+              </span>
+              <span className="flex-1 min-w-0 truncate text-left">{item.label}</span>
+              {item.badge && (
+                <span className="shrink-0 flex items-center">{item.badge}</span>
+              )}
+            </Link>
+          </div>
+        );
+      })}
+    </nav>
+  );
+}
+
+/* -------------------------------------------------------------------- */
+/* Collapsed mode — icon-only rail with the multi-pill wave hover.       */
+/* -------------------------------------------------------------------- */
+function CollapsedWaveRail({ items, activeKey }: { items: SideRailItem[]; activeKey?: string }) {
   const tileRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
   const [tileRects, setTileRects] = useState<Record<string, { top: number; left: number }>>({});
 
   const hoveredIndex = hoveredKey ? items.findIndex((i) => i.key === hoveredKey) : -1;
 
-  // Measure tile coordinates so the portal pills can match them. We
-  // re-measure on resize and on any ancestor scroll (capture phase) so
-  // the pills stay glued to their tiles even when the rail's scroll
+  // Measure tile coordinates so the portal pills can match them. Re-
+  // measures on resize and on any ancestor scroll (capture phase) so the
+  // pills stay glued to their tiles even when the rail's scroll
   // container moves them around. Initial render has empty tileRects so
   // each portal pill bails out (`if (!rect) return null`) until this
-  // effect runs and populates them.
+  // effect populates them.
   useLayoutEffect(() => {
     function measure() {
       const next: Record<string, { top: number; left: number }> = {};
@@ -123,9 +164,9 @@ export function SideRail({ items, activeKey }: { items: SideRailItem[]; activeKe
       </nav>
 
       {/* Portal pills — one per item, always mounted after hydration.
-          Width morphs from 44 px → 200 px / 161 / 122 / 83 / 44 based on
-          the distance to the currently hovered tile. The CSS transition
-          makes cursor movement along the rail produce a smooth wave. */}
+          Width morphs from 44 → 200 / 161 / 122 / 83 / 44 px based on
+          distance to the hovered tile. CSS transition turns cursor
+          movement along the rail into a continuous ripple. */}
       {typeof document !== "undefined" && createPortal(
         <>
           {items.map((item, idx) => {
@@ -137,12 +178,6 @@ export function SideRail({ items, activeKey }: { items: SideRailItem[]; activeKe
             const isActive = activeKey === item.key;
             const inWave = distance < WAVE_SCALES.length;
 
-            // Visual treatment per state. Hovered pill is the focal
-            // point (solid bg + shadow + ring); active gets the brand
-            // cyan tint; wave-neighbours get a very soft fill so the
-            // expansion is visible without competing with the hovered
-            // item; everything else is invisible (transparent over the
-            // rail tile underneath).
             const pillBg = isHovered
               ? "bg-[#003845] shadow-[0_10px_30px_-8px_rgba(0,0,0,0.55)] ring-1 ring-white/5"
               : isActive
@@ -175,11 +210,6 @@ export function SideRail({ items, activeKey }: { items: SideRailItem[]; activeKe
                   {isActive && (
                     <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-[#00AFCB] rounded-r-full z-10" />
                   )}
-                  {/* Label — left side, revealed by the expansion. Only
-                      the hovered tile reveals it; neighbours stay
-                      un-labelled (spec §9). The 80 ms delay makes the
-                      reveal feel coupled to the width morph rather than
-                      a separate fade. */}
                   <span
                     className="flex-1 min-w-0 text-[13px] font-medium pl-3 pr-1 truncate transition-opacity"
                     style={{
@@ -190,11 +220,6 @@ export function SideRail({ items, activeKey }: { items: SideRailItem[]; activeKe
                   >
                     {item.label}
                   </span>
-                  {/* Icon — anchored to the right. As the pill widens
-                      this span visually slides RIGHT because the flex-1
-                      label area grows in front of it. The icon never
-                      changes size or position relative to the pill's
-                      right edge — it just rides along with it. */}
                   <span className="w-11 h-11 shrink-0 flex items-center justify-center [&>svg]:w-[18px] [&>svg]:h-[18px]">
                     {item.icon}
                   </span>

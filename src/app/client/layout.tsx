@@ -109,6 +109,22 @@ function ClientLayoutInner({ children }: { children: React.ReactNode }) {
   const [logoutHover, setLogoutHover] = useState(false);
   const isMainPage = pathname === "/client";
   const lastRefresh = useRef(0);
+  // Sidebar collapsed/expanded preference — see the accountant layout
+  // for the full rationale. Shared localStorage key so toggling in one
+  // portal carries over if the same browser visits the other portal.
+  const [sidebarExpanded, setSidebarExpanded] = useState(false);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("hamza.sidebar.expanded") === "true") setSidebarExpanded(true);
+    } catch {}
+  }, []);
+  const toggleSidebar = useCallback(() => {
+    setSidebarExpanded((prev) => {
+      const next = !prev;
+      try { localStorage.setItem("hamza.sidebar.expanded", String(next)); } catch {}
+      return next;
+    });
+  }, []);
 
   useEffect(() => { setMobileMenuOpen(false); }, [pathname]);
 
@@ -207,28 +223,56 @@ function ClientLayoutInner({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      {/* Desktop left sidebar — starts below the top bar */}
-      <aside className="hidden lg:flex w-14 bg-[#004854] flex-col fixed top-14 left-0 bottom-0 z-30 shadow-[4px_0_20px_-10px_rgba(0,0,0,0.3)]">
+      {/* Desktop left sidebar — 56 px icon rail (wave hover) or 256 px
+          labelled rail, toggled via the button at the bottom. */}
+      <aside className={`hidden lg:flex bg-[#004854] flex-col fixed top-14 left-0 bottom-0 z-30 shadow-[4px_0_20px_-10px_rgba(0,0,0,0.3)] transition-[width] duration-300 ease-out ${sidebarExpanded ? "w-64" : "w-14"}`}>
         {/* Main nav */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden pt-1">
-          <SideRail items={railItems} activeKey={activeSection} />
+          <SideRail items={railItems} activeKey={activeSection} expanded={sidebarExpanded} />
         </div>
 
-        {/* Bottom — logout */}
-        <div className="border-t border-white/10 px-1.5 py-2">
-          <button onClick={handleLogout} aria-label="Uitloggen"
-            onMouseEnter={() => setLogoutHover(true)}
-            onMouseLeave={() => setLogoutHover(false)}
-            className={`group relative flex items-center h-11 rounded-xl overflow-hidden whitespace-nowrap transition-[width,background-color,color] duration-300 ease-out ${
-              logoutHover ? "bg-red-500/15 text-red-300 w-[200px] shadow-[0_10px_30px_-8px_rgba(0,0,0,0.55)] ring-1 ring-white/5 z-30" : "bg-transparent text-white/55 w-11"
-            }`}>
-            <span className="w-11 h-11 shrink-0 flex items-center justify-center">
-              <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
-            </span>
-            <span className="text-[13px] font-medium pr-4 transition-opacity duration-200" style={{ opacity: logoutHover ? 1 : 0 }}>Uitloggen</span>
-          </button>
+        {/* Bottom — logout + sidebar collapse/expand toggle. Two render
+            paths so the bottom controls match whichever rail mode is
+            active (see the accountant layout for the pattern). */}
+        <div className="border-t border-white/10 py-2">
+          {sidebarExpanded ? (
+            <div className="flex flex-col gap-0.5 px-2">
+              <button onClick={handleLogout} aria-label="Uitloggen"
+                className="flex items-center gap-3 h-10 pl-3 pr-2 rounded-lg text-[13px] font-medium text-white/65 hover:bg-red-500/15 hover:text-red-300 transition-colors">
+                <span className="w-[18px] h-[18px] shrink-0 flex items-center justify-center">
+                  <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+                </span>
+                <span className="flex-1 text-left">Uitloggen</span>
+              </button>
+              <button onClick={toggleSidebar} aria-label="Menu inklappen"
+                className="flex items-center gap-3 h-10 pl-3 pr-2 rounded-lg text-[13px] font-medium text-white/55 hover:bg-white/5 hover:text-white/90 transition-colors">
+                <span className="w-[18px] h-[18px] shrink-0 flex items-center justify-center">
+                  <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 19l-7-7 7-7" /></svg>
+                </span>
+                <span className="flex-1 text-left">Menu inklappen</span>
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1 px-1.5">
+              <button onClick={handleLogout} aria-label="Uitloggen"
+                onMouseEnter={() => setLogoutHover(true)}
+                onMouseLeave={() => setLogoutHover(false)}
+                className={`group relative flex items-center h-11 rounded-xl overflow-hidden whitespace-nowrap transition-[width,background-color,color] duration-300 ease-out ${
+                  logoutHover ? "bg-red-500/15 text-red-300 w-[200px] shadow-[0_10px_30px_-8px_rgba(0,0,0,0.55)] ring-1 ring-white/5 z-30" : "bg-transparent text-white/55 w-11"
+                }`}>
+                <span className="w-11 h-11 shrink-0 flex items-center justify-center">
+                  <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                  </svg>
+                </span>
+                <span className="text-[13px] font-medium pr-4 transition-opacity duration-200" style={{ opacity: logoutHover ? 1 : 0 }}>Uitloggen</span>
+              </button>
+              <button onClick={toggleSidebar} aria-label="Menu uitklappen"
+                className="w-11 h-11 flex items-center justify-center rounded-xl text-white/55 hover:bg-white/5 hover:text-white/90 transition-colors">
+                <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 5l7 7-7 7" /></svg>
+              </button>
+            </div>
+          )}
         </div>
       </aside>
 
@@ -269,8 +313,9 @@ function ClientLayoutInner({ children }: { children: React.ReactNode }) {
         {mobileNav}
       </aside>
 
-      {/* Main content */}
-      <main className="flex-1 min-h-screen bg-[#F5F7FA] pt-14 lg:pt-14 lg:ml-14">
+      {/* Main content — left margin tracks the sidebar width so the
+          page reflows when the user toggles collapse/expand. */}
+      <main className={`flex-1 min-h-screen bg-[#F5F7FA] pt-14 lg:pt-14 transition-[margin-left] duration-300 ease-out ${sidebarExpanded ? "lg:ml-64" : "lg:ml-14"}`}>
         {children}
       </main>
     </div>
