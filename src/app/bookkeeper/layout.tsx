@@ -533,37 +533,33 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen">
-      {/* Desktop top bar — logo on the left, admin switcher next to it,
-          notification bell on the right. Sits above the sidebar and the
-          main content. */}
-      <header className="hidden lg:flex fixed top-0 left-0 right-0 h-14 bg-[#004854] border-b border-white/10 z-40 items-center px-4 gap-4 pt-[env(safe-area-inset-top)]">
-        <Link href="/bookkeeper" className="shrink-0 flex items-center" aria-label="Home">
-          <Image src="/logo.svg" alt="HAMZA Deboekhouder" width={130} height={34} className="brightness-0 invert" priority />
-        </Link>
-
-        {/* Admin switcher — next to the logo, opens a dropdown */}
-        <div className="relative shrink-0" ref={adminMenuRef}>
+      {/* Floating top-right utility controls (desktop only) — administration
+          selector + notification bell, no header bar behind them. The
+          controls float over the page content; the page is responsible
+          for keeping its top-right area free of important content. */}
+      <div className="hidden lg:flex fixed top-3 right-4 z-40 items-center gap-2 pt-[env(safe-area-inset-top)]">
+        <div className="relative" ref={adminMenuRef}>
           {activeAdministration ? (
             <button onClick={() => setAdminMenuOpen((v) => !v)}
-              className="flex items-center gap-2.5 pl-1.5 pr-3 py-1 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 hover:border-white/20 transition-all max-w-[260px] group">
+              className="flex items-center gap-2.5 pl-1.5 pr-3 py-1 rounded-full border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 transition-all max-w-[260px] group shadow-sm">
               <span className="w-7 h-7 rounded-full bg-gradient-to-br from-[#00AFCB] to-[#008FA8] text-white text-xs font-bold flex items-center justify-center shrink-0 shadow-[0_2px_6px_rgba(0,175,203,0.4)] ring-1 ring-white/20">
                 {(activeAdministration.company || activeAdministration.name).charAt(0).toUpperCase()}
               </span>
               <div className="min-w-0 text-left">
-                <p className="text-[9px] text-white/45 leading-none uppercase tracking-wider">Administratie</p>
-                <p className="text-xs font-semibold text-white truncate leading-tight mt-0.5">{activeAdministration.company || activeAdministration.name}</p>
+                <p className="text-[9px] text-gray-500 leading-none uppercase tracking-wider">Administratie</p>
+                <p className="text-xs font-semibold text-gray-900 truncate leading-tight mt-0.5">{activeAdministration.company || activeAdministration.name}</p>
               </div>
-              <svg className="w-3 h-3 text-white/45 shrink-0 group-hover:text-white/70 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+              <svg className="w-3 h-3 text-gray-400 shrink-0 group-hover:text-gray-600 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
             </button>
           ) : (
             <Link href="/bookkeeper?section=administraties"
-              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-200 hover:bg-amber-500/30 transition-colors">
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-50 border border-amber-300 text-amber-700 hover:bg-amber-100 transition-colors shadow-sm">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
               <span className="text-xs font-medium">Selecteer administratie</span>
             </Link>
           )}
           {adminMenuOpen && activeAdministration && (
-            <div className="absolute left-0 top-full mt-2 w-72 bg-white border border-gray-200 rounded-xl shadow-xl py-1.5 z-[9999] max-h-[70vh] overflow-y-auto">
+            <div className="absolute right-0 top-full mt-2 w-72 bg-white border border-gray-200 rounded-xl shadow-xl py-1.5 z-[9999] max-h-[70vh] overflow-y-auto">
               <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Wisselen naar</p>
               {administrations.length === 0 && <p className="px-3 py-2 text-xs text-gray-400">Geen administraties beschikbaar.</p>}
               {administrations.map((adm) => (
@@ -592,20 +588,33 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
             </div>
           )}
         </div>
-
-        <div className="flex-1" />
-
-        {/* Notification bell top-right */}
-        <div className="shrink-0">
+        <div className="bg-white rounded-full border border-gray-200 shadow-sm">
           <NotificationBell variant="light" />
         </div>
-      </header>
+      </div>
 
-      {/* Desktop left sidebar — switches between a 56 px icon rail
-          (wave hover) and a 256 px labelled rail (full module names).
-          The toggle button at the bottom flips between the two modes
-          and persists the choice in localStorage. */}
-      <aside className={`hidden lg:flex bg-[#004854] flex-col fixed top-14 left-0 bottom-0 z-30 shadow-[4px_0_20px_-10px_rgba(0,0,0,0.3)] transition-[width] duration-300 ease-out ${sidebarExpanded ? "w-64" : "w-14"}`}>
+      {/* Desktop left sidebar — primary navigation shell. Now occupies
+          the FULL viewport height (top-0 → bottom-0); the brand sits at
+          the top, the rail in the middle, and the logout + collapse-
+          toggle controls at the bottom. Width morphs between 56 px
+          (icon rail with wave hover) and 256 px (labelled rail). */}
+      <aside className={`hidden lg:flex bg-[#004854] flex-col fixed top-0 left-0 bottom-0 z-30 shadow-[4px_0_20px_-10px_rgba(0,0,0,0.3)] transition-[width] duration-300 ease-out ${sidebarExpanded ? "w-64" : "w-14"}`}>
+        {/* Brand — pictogram only when collapsed, full HAMZA logo when
+            expanded. The conditional swap is instant, but the aside's
+            width transition smooths the visual change so the brand
+            mark stays roughly in place at the start of the morph. */}
+        <div className={`h-14 border-b border-white/10 flex items-center overflow-hidden ${sidebarExpanded ? "px-3" : "justify-center"}`}>
+          <Link href="/bookkeeper" aria-label="Home" className="flex items-center">
+            {sidebarExpanded ? (
+              <Image src="/logo.svg" alt="HAMZA Deboekhouder" width={170} height={44} className="brightness-0 invert" priority />
+            ) : (
+              <svg viewBox="0 0 152 190" aria-hidden className="w-7 h-9">
+                <path fill="#00AFCB" d="M91,8v30h-16V0H30v30H0v152h45v-30h15v38h45v-30h31V8h-45ZM30,167h-15V46h15v121ZM60,137h-15V16h15v121ZM90,175h-15V54h15v121ZM121,144h-15V23h15v121Z" />
+              </svg>
+            )}
+          </Link>
+        </div>
+
         {/* Main nav */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden pt-1">
           <SideRail items={railItems} activeKey={activeSection} expanded={sidebarExpanded} />
@@ -700,7 +709,7 @@ function BookkeeperLayoutInner({ children }: { children: React.ReactNode }) {
 
       {/* Main content — left margin tracks the sidebar width so the
           dashboard reflows when the user toggles collapse/expand. */}
-      <main className={`flex-1 min-h-screen bg-[#F5F7FA] pt-14 lg:pt-14 transition-[margin-left] duration-300 ease-out ${sidebarExpanded ? "lg:ml-64" : "lg:ml-14"}`}>
+      <main className={`flex-1 min-h-screen bg-[#F5F7FA] pt-14 lg:pt-2 transition-[margin-left] duration-300 ease-out ${sidebarExpanded ? "lg:ml-64" : "lg:ml-14"}`}>
         {children}
       </main>
     </div>

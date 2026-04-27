@@ -212,20 +212,36 @@ function ClientLayoutInner({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen">
-      {/* Desktop top bar — logo on the left, bell on the right */}
-      <header className="hidden lg:flex fixed top-0 left-0 right-0 h-14 bg-[#004854] border-b border-white/10 z-40 items-center px-4 gap-4 pt-[env(safe-area-inset-top)]">
-        <Link href="/client" className="shrink-0 flex items-center" aria-label="Home">
-          <Image src="/logo.svg" alt="HAMZA Deboekhouder" width={130} height={34} className="brightness-0 invert" priority />
-        </Link>
-        <div className="flex-1" />
-        <div className="shrink-0">
+      {/* Floating top-right notification bell (desktop only). No header
+          bar behind it — it floats over the page content as a single
+          chip-style control. */}
+      <div className="hidden lg:flex fixed top-3 right-4 z-40 items-center gap-2 pt-[env(safe-area-inset-top)]">
+        <div className="bg-white rounded-full border border-gray-200 shadow-sm">
           <NotificationBell variant="light" />
         </div>
-      </header>
+      </div>
 
-      {/* Desktop left sidebar — 56 px icon rail (wave hover) or 256 px
-          labelled rail, toggled via the button at the bottom. */}
-      <aside className={`hidden lg:flex bg-[#004854] flex-col fixed top-14 left-0 bottom-0 z-30 shadow-[4px_0_20px_-10px_rgba(0,0,0,0.3)] transition-[width] duration-300 ease-out ${sidebarExpanded ? "w-64" : "w-14"}`}>
+      {/* Desktop left sidebar — primary navigation shell. Full viewport
+          height (top-0 → bottom-0); brand at the top, rail in the
+          middle, logout + collapse-toggle at the bottom. Width morphs
+          between 56 px (icon rail with wave hover) and 256 px
+          (labelled rail). */}
+      <aside className={`hidden lg:flex bg-[#004854] flex-col fixed top-0 left-0 bottom-0 z-30 shadow-[4px_0_20px_-10px_rgba(0,0,0,0.3)] transition-[width] duration-300 ease-out ${sidebarExpanded ? "w-64" : "w-14"}`}>
+        {/* Brand — pictogram only when collapsed, full HAMZA logo when
+            expanded. Mirrors the accountant layout so both portals
+            share a consistent shell. */}
+        <div className={`h-14 border-b border-white/10 flex items-center overflow-hidden ${sidebarExpanded ? "px-3" : "justify-center"}`}>
+          <Link href="/client" aria-label="Home" className="flex items-center">
+            {sidebarExpanded ? (
+              <Image src="/logo.svg" alt="HAMZA Deboekhouder" width={170} height={44} className="brightness-0 invert" priority />
+            ) : (
+              <svg viewBox="0 0 152 190" aria-hidden className="w-7 h-9">
+                <path fill="#00AFCB" d="M91,8v30h-16V0H30v30H0v152h45v-30h15v38h45v-30h31V8h-45ZM30,167h-15V46h15v121ZM60,137h-15V16h15v121ZM90,175h-15V54h15v121ZM121,144h-15V23h15v121Z" />
+              </svg>
+            )}
+          </Link>
+        </div>
+
         {/* Main nav */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden pt-1">
           <SideRail items={railItems} activeKey={activeSection} expanded={sidebarExpanded} />
@@ -315,7 +331,7 @@ function ClientLayoutInner({ children }: { children: React.ReactNode }) {
 
       {/* Main content — left margin tracks the sidebar width so the
           page reflows when the user toggles collapse/expand. */}
-      <main className={`flex-1 min-h-screen bg-[#F5F7FA] pt-14 lg:pt-14 transition-[margin-left] duration-300 ease-out ${sidebarExpanded ? "lg:ml-64" : "lg:ml-14"}`}>
+      <main className={`flex-1 min-h-screen bg-[#F5F7FA] pt-14 lg:pt-2 transition-[margin-left] duration-300 ease-out ${sidebarExpanded ? "lg:ml-64" : "lg:ml-14"}`}>
         {children}
       </main>
     </div>
