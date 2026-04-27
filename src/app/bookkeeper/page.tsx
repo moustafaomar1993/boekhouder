@@ -1050,7 +1050,7 @@ function BookkeeperContent() {
   });
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl">
+    <div className="p-4 sm:p-6 lg:p-8 lg:pt-3 max-w-7xl">
       {/* ═══ ADMINISTRATIES (selector) ═══ */}
       {section === "administraties" && (
         <div className="space-y-6">

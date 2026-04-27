@@ -494,7 +494,7 @@ function ClientPortalContent() {
   const sectionTitles: Record<string, string> = { dashboard: "Dashboard", verkoop: "Verkoop", inkoop: "Inkoop", bank: "Bank", fiscaal: "BTW & Fiscaal overzicht" };
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl">
+    <div className="p-4 sm:p-6 lg:p-8 lg:pt-3 max-w-7xl">
       {/* Page header */}
       <div className="flex items-center justify-between mb-6">
         <div>
