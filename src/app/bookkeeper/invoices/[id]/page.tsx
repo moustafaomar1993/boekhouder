@@ -324,7 +324,7 @@ function InvoiceReviewInner({ id }: { id: string }) {
           </div>
         </header>
 
-        <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
+        <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-3 pb-6 space-y-5">
           {/* Duplicate warnings */}
           {duplicateWarnings.length > 0 && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
@@ -785,7 +785,7 @@ function InvoiceReviewInner({ id }: { id: string }) {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-3 pb-6 space-y-5">
         {/* Duplicate warnings */}
         {duplicateWarnings.length > 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">

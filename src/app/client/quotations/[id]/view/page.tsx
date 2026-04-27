@@ -83,7 +83,7 @@ export default function ViewQuotation({ params }: { params: Promise<{ id: string
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-3 pb-8 space-y-6">
         {/* Action Buttons */}
         <div className="flex flex-wrap gap-3">
           {s === "draft" && <Link href={`/client/quotations/${id}/edit`} className="px-5 py-3 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700">Bewerken</Link>}

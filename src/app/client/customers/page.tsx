@@ -260,7 +260,7 @@ export default function CustomersPage() {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-3 pb-6">
         {/* Empty state */}
         {customers.length === 0 && !showForm && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">

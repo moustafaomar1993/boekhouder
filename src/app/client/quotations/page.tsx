@@ -102,7 +102,7 @@ export default function QuotationsPage() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-3 pb-6">
         <div className="flex flex-wrap gap-3 mb-4">
           <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
             placeholder="Zoek op nummer of klant..." className="flex-1 min-w-[200px] border border-gray-300 rounded-lg px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
