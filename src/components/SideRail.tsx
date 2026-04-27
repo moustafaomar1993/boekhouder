@@ -207,20 +207,20 @@ function CollapsedWaveRail({ items, activeKey }: { items: SideRailItem[]; active
                   href={item.href}
                   onClick={item.onSelect}
                   aria-label={item.label}
-                  className={`relative flex items-center w-full h-full rounded-xl overflow-hidden whitespace-nowrap transition-[background-color,box-shadow] duration-200 ${pillBg} ${textColor}`}
+                  className={`relative block w-full h-full rounded-xl overflow-hidden whitespace-nowrap transition-[background-color,box-shadow] duration-200 ${pillBg} ${textColor}`}
                 >
                   {isActive && (
                     <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-[#00AFCB] rounded-r-full z-10" />
                   )}
-                  {/* Label — visible on every wave-expanded tile (0-3
-                      distance), not just the hovered one. The brand
-                      off-white sits at full opacity over the dark-teal
-                      pill bg, so even the narrowest 25 % pill shows a
-                      readable (truncated) label. The 80 ms delay still
-                      makes the reveal feel coupled to the width morph
-                      instead of an independent fade. */}
+                  {/* Label — `absolute inset-0` so it fills the pill
+                      behind the icon. `pr-12` reserves the icon's
+                      44 px column on the right so the label never
+                      overlaps it visually. Visible on every wave-
+                      expanded tile (0-3 distance) at full opacity in
+                      the brand off-white; the 80 ms delay keeps the
+                      reveal coupled to the width morph. */}
                   <span
-                    className="flex-1 min-w-0 text-[13px] font-medium pl-3 pr-1 truncate transition-opacity"
+                    className="absolute inset-0 flex items-center pl-3 pr-12 truncate text-[13px] font-medium transition-opacity"
                     style={{
                       opacity: inWave ? 1 : 0,
                       transitionDuration: "200ms",
@@ -229,7 +229,16 @@ function CollapsedWaveRail({ items, activeKey }: { items: SideRailItem[]; active
                   >
                     {item.label}
                   </span>
-                  <span className="w-11 h-11 shrink-0 flex items-center justify-center [&>svg]:w-[18px] [&>svg]:h-[18px]">
+                  {/* Icon — `absolute right-0 top-0 w-11 h-11`,
+                      pinned to the right edge of the pill. At pill
+                      width 44 (idle / out-of-wave) the span IS the
+                      whole pill, so the 18 × 18 SVG sits perfectly
+                      centred in the 44 × 44 button — that's the
+                      alignment fix. As the pill grows the span stays
+                      anchored on the right, so the icon visually
+                      slides RIGHT and the wave reveal motion is
+                      preserved unchanged. */}
+                  <span className="absolute right-0 top-0 w-11 h-11 flex items-center justify-center [&>svg]:w-[18px] [&>svg]:h-[18px]">
                     {item.icon}
                   </span>
                 </Link>
