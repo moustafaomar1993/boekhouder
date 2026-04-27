@@ -173,17 +173,20 @@ function CollapsedWaveRail({ items, activeKey }: { items: SideRailItem[]; active
             const inWave = distance < WAVE_SCALES.length;
 
             const pillBg = isHovered
-              ? "bg-[#003845] shadow-[0_10px_30px_-8px_rgba(0,0,0,0.55)] ring-1 ring-white/5"
+              ? "bg-[#003845] shadow-[0_10px_30px_-8px_rgba(0,0,0,0.55)] ring-1 ring-white/10"
               : isActive
-              ? "bg-[#00AFCB]/25"
+              ? "bg-[#00AFCB]/40"
               : inWave
-              ? "bg-white/[0.06]"
+              ? "bg-[#003845]/85"
               : "bg-transparent";
-            // Icon + label content always renders at full opacity in the
-            // brand off-white (#EFF0E9). The "glass" effect comes from
-            // the translucent pill bg, never from fading the inner
-            // content — readability of partially-expanded buttons was
-            // exactly what the previous version got wrong.
+            // Icon + label content always renders at full opacity in
+            // the brand off-white (#EFF0E9). Pill bg carries the very
+            // slight translucency that gives the glass feel — it never
+            // comes from fading the inner content. Wave neighbours used
+            // to use bg-white/[0.06] which over the teal rail was
+            // basically invisible; bg-[#003845]/85 is the same dark
+            // teal as the hovered pill at 85 % so the partial pill
+            // shape reads clearly at every expansion level.
             const textColor = "text-[#EFF0E9]";
 
             return (
@@ -209,12 +212,19 @@ function CollapsedWaveRail({ items, activeKey }: { items: SideRailItem[]; active
                   {isActive && (
                     <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-[#00AFCB] rounded-r-full z-10" />
                   )}
+                  {/* Label — visible on every wave-expanded tile (0-3
+                      distance), not just the hovered one. The brand
+                      off-white sits at full opacity over the dark-teal
+                      pill bg, so even the narrowest 25 % pill shows a
+                      readable (truncated) label. The 80 ms delay still
+                      makes the reveal feel coupled to the width morph
+                      instead of an independent fade. */}
                   <span
                     className="flex-1 min-w-0 text-[13px] font-medium pl-3 pr-1 truncate transition-opacity"
                     style={{
-                      opacity: isHovered ? 1 : 0,
+                      opacity: inWave ? 1 : 0,
                       transitionDuration: "200ms",
-                      transitionDelay: isHovered ? "80ms" : "0ms",
+                      transitionDelay: inWave ? "80ms" : "0ms",
                     }}
                   >
                     {item.label}
