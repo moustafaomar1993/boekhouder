@@ -331,7 +331,7 @@ function ClientLayoutInner({ children }: { children: React.ReactNode }) {
 
       {/* Main content — left margin tracks the sidebar width so the
           page reflows when the user toggles collapse/expand. */}
-      <main className={`flex-1 min-h-screen bg-[#F5F7FA] pt-14 lg:pt-2 transition-[margin-left] duration-300 ease-out ${sidebarExpanded ? "lg:ml-64" : "lg:ml-14"}`}>
+      <main className={`flex-1 min-h-screen bg-[#F5F7FA] pt-14 lg:pt-0 transition-[margin-left] duration-300 ease-out ${sidebarExpanded ? "lg:ml-64" : "lg:ml-14"}`}>
         {children}
       </main>
     </div>
