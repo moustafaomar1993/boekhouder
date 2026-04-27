@@ -74,10 +74,10 @@ function ExpandedRail({ items, activeKey }: { items: SideRailItem[]; activeKey?:
               href={item.href}
               onClick={item.onSelect}
               aria-label={item.label}
-              className={`relative flex items-center gap-3 h-10 pl-3 pr-2 rounded-lg text-[13px] font-medium transition-colors duration-150 ${
+              className={`relative flex items-center gap-3 h-10 pl-3 pr-2 rounded-lg text-[13px] font-medium transition-colors duration-150 text-[#EFF0E9] ${
                 isActive
-                  ? "bg-[#00AFCB]/20 text-white"
-                  : "text-white/65 hover:bg-white/5 hover:text-white"
+                  ? "bg-[#00AFCB]/20"
+                  : "hover:bg-white/5"
               }`}
             >
               {isActive && (
@@ -136,11 +136,14 @@ function CollapsedWaveRail({ items, activeKey }: { items: SideRailItem[]; active
 
   return (
     <>
-      {/* Rail tiles — layout placeholders. Each tile reserves vertical
-          space and hosts a basic icon link so the rail is navigable
-          before the portal hydrates (or for users with no JS). The
-          portal pills below render on top once mounted and become the
-          real interactive surface. */}
+      {/* Rail tiles — pure layout placeholders. Each tile reserves
+          vertical space and hosts the `data-rail-item` attribute used
+          by the layout's module-popups, but renders no chrome of its
+          own. The portal pills below own the icon, label, and click
+          target — keeping a separate icon here would visibly overlap
+          the pill's icon as soon as a wave neighbour expanded
+          (because their bgs are intentionally translucent), producing
+          the duplicate-icon ghost the user reported. */}
       <nav className="flex flex-col gap-1 px-1.5 py-2">
         {items.map((item) => (
           <div
@@ -149,17 +152,8 @@ function CollapsedWaveRail({ items, activeKey }: { items: SideRailItem[]; active
               tileRefs.current[item.key] = el;
             }}
             data-rail-item={item.key}
-            className="relative w-11 h-11"
-          >
-            <Link
-              href={item.href}
-              onClick={item.onSelect}
-              aria-label={item.label}
-              className="absolute inset-0 flex items-center justify-center text-white/65 [&>svg]:w-[18px] [&>svg]:h-[18px]"
-            >
-              {item.icon}
-            </Link>
-          </div>
+            className="w-11 h-11"
+          />
         ))}
       </nav>
 
@@ -183,9 +177,14 @@ function CollapsedWaveRail({ items, activeKey }: { items: SideRailItem[]; active
               : isActive
               ? "bg-[#00AFCB]/25"
               : inWave
-              ? "bg-white/[0.04]"
+              ? "bg-white/[0.06]"
               : "bg-transparent";
-            const textColor = isHovered || isActive ? "text-white" : "text-white/70";
+            // Icon + label content always renders at full opacity in the
+            // brand off-white (#EFF0E9). The "glass" effect comes from
+            // the translucent pill bg, never from fading the inner
+            // content — readability of partially-expanded buttons was
+            // exactly what the previous version got wrong.
+            const textColor = "text-[#EFF0E9]";
 
             return (
               <div
